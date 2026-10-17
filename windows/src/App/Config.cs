@@ -53,6 +53,23 @@ namespace Zones
         public int SnapSizePrevMods { get; set; }
         public int SnapSizePrevKey { get; set; }
 
+        /// <summary>
+        /// The displays whose entries in the file could not be read, as they
+        /// were parsed. Dropped, they would be gone at the next save, and
+        /// with them someone's layouts: a newer Zones may have written them
+        /// in a shape this one does not know, or a hand edit left them a
+        /// bracket short to be fixed. So they are written back unchanged,
+        /// until the display gets a layout of its own here.
+        /// </summary>
+        readonly Dictionary<string, object> _unreadLayouts = new Dictionary<string, object>(StringComparer.OrdinalIgnoreCase);
+
+        /// <summary>
+        /// Every setting the file held, as parsed. Save writes its own over
+        /// them and puts the rest back: the settings of a newer Zones, which
+        /// would otherwise not survive running this one for a while.
+        /// </summary>
+        Dictionary<string, object> _readSettings = new Dictionary<string, object>();
+
         public AppConfig()
         {
             StartWithWindows = false;
@@ -167,6 +184,7 @@ namespace Zones
                 if (root == null) return null;
 
                 AppConfig cfg = new AppConfig();
+                cfg._readSettings = root;
 
                 cfg.StartWithWindows = Json.Bool(root, "StartWithWindows", false);
                 cfg.AutoUpdate = Json.Bool(root, "AutoUpdate", true);
@@ -189,6 +207,7 @@ namespace Zones
                     {
                         DisplayLayouts display = DisplayLayouts.FromJson(kv.Value);
                         if (display != null) cfg.SnapLayouts[kv.Key] = display;
+                        else cfg._unreadLayouts[kv.Key] = kv.Value;
                     }
                 }
 
@@ -229,7 +248,17 @@ namespace Zones
                 Dictionary<string, object> layouts = new Dictionary<string, object>();
                 foreach (KeyValuePair<string, DisplayLayouts> kv in SnapLayouts)
                     layouts[kv.Key] = kv.Value.ToJson();
+                foreach (KeyValuePair<string, object> kv in _unreadLayouts)
+                {
+                    if (!SnapLayouts.ContainsKey(kv.Key)) layouts[kv.Key] = kv.Value;
+                }
                 root["SnapLayouts"] = layouts;
+
+                // What the file had that this build does not write, as it was.
+                foreach (KeyValuePair<string, object> kv in _readSettings)
+                {
+                    if (!root.ContainsKey(kv.Key)) root[kv.Key] = kv.Value;
+                }
 
                 // Written beside the real file and swapped in whole, the old one
                 // kept as the backup: a save cut short leaves the last good file
