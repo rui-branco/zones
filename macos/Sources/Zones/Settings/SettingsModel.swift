@@ -31,11 +31,12 @@ final class SettingsModel: NSObject, ObservableObject {
     @Published private(set) var recording: Hotkeys.Slot?
     @Published private(set) var heldModifiers: UInt32 = 0
 
-    /// "Use on All Displays" just worked: the subtitle says so for a moment,
-    /// as nothing else on screen changes to show it.
+    /// "Use on All Displays" just worked: the Presets heading's line says so
+    /// for a moment, as nothing else on screen changes to show it.
     @Published private(set) var copied = false
 
-    /// What the updater is doing: the header's update button shows it.
+    /// What the updater is doing: the General page's update button shows it,
+    /// and the sidebar's foot an update on offer.
     @Published private(set) var update = Updater.shared.state
 
     /// Set while this window's own change is being saved, so the
@@ -147,10 +148,10 @@ final class SettingsModel: NSObject, ObservableObject {
         optionsChanged()
     }
 
-    /// The shortcut rows, in the order the card lists them.
+    /// The shortcut rows, in the order the Shortcuts card lists them.
     static let shortcutSlots: [Hotkeys.Slot] = [.zone, .zoneBack, .size, .sizeBack]
 
-    /// A shortcut's name: its row's title, and how the card's footnote
+    /// A shortcut's name: its row's title, and how the line under the card
     /// refers to it when another app has it.
     static func title(_ slot: Hotkeys.Slot) -> String {
         switch slot {

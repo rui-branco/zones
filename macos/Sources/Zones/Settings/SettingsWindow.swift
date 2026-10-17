@@ -45,8 +45,9 @@ enum SettingsWindow {
 ///
 /// A titled window, so it has the traffic lights and a place in Mission
 /// Control, but with the title bar see-through and its title hidden: the page
-/// draws its own flat header under them, in the window's colour. Resizable,
-/// for the zone editor's sake: a bigger model display is easier to draw on.
+/// draws its own flat band under them, in the window's colour, the top of its
+/// sidebar beside them. Resizable, for the zone editor's sake: a bigger model
+/// display is easier to draw on.
 @MainActor
 private final class SettingsWindowController: NSObject, NSWindowDelegate {
     private static var open: SettingsWindowController?
@@ -98,8 +99,8 @@ private final class SettingsWindowController: NSObject, NSWindowDelegate {
 
         // An empty toolbar, only for its title bar height: in the compact
         // style the traffic lights sit centred in the top 40 points, level
-        // with the icon and the name drawn in the header. Nothing in it to
-        // customise or show as text.
+        // with the icon and the name at the top of the sidebar. Nothing in
+        // it to customise or show as text.
         let toolbar = NSToolbar(identifier: "ZonesSettings")
         toolbar.allowsUserCustomization = false
         if #available(macOS 15.0, *) {

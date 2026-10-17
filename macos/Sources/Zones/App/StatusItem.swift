@@ -24,7 +24,7 @@ enum StatusItem {
         let menu = NSMenu()
         menu.delegate = actions
 
-        let settings = NSMenuItem(title: "Snap Layouts…", action: #selector(MenuActions.showSettings), keyEquivalent: ",")
+        let settings = NSMenuItem(title: "Settings…", action: #selector(MenuActions.showSettings), keyEquivalent: ",")
         settings.target = actions
         menu.addItem(settings)
 

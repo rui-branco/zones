@@ -2,149 +2,97 @@ import AppKit
 import SwiftUI
 import ZonesCore
 
-/// The settings page: the displays and the snapping options down the left,
-/// and on the right the layout of whichever display is picked, chosen from
-/// the presets or drawn by hand, and its sizes.
+/// The settings window's content: a sidebar down the left, as in System
+/// Settings, and beside it the page for the section picked there. Layouts has
+/// the displays as tabs and, for whichever is picked, its layout, chosen from
+/// the presets or drawn by hand, and its sizes; Snapping, Shortcuts and
+/// General are a card or two of options each, under the page's title.
 ///
 /// Placed point by point rather than flowed, mirroring the Windows window,
-/// which it is meant to be recognisably the same page as. The left column
-/// keeps its width; the right one, and the zone editor in it, take whatever
-/// the window gives them. The header is flat with the page, in the window's
-/// own colour: the traffic lights sit on it and the window is dragged by it,
-/// with no title bar stacked on top. Its right end has the version, the
-/// updates and starting at login.
+/// which it is meant to be recognisably the same page as. The sidebar keeps
+/// its width; the page, and the zone editor on it, take whatever the window
+/// gives them. The top band is flat with the page, in the window's own
+/// colour: the traffic lights sit on it, the icon and the name beside them at
+/// the top of the sidebar, and the window is dragged by it, with no title bar
+/// stacked on top. The rest of the band is left empty for that.
 struct SettingsView: View {
     @ObservedObject var model: SettingsModel
+
+    /// The page showing: Layouts each time the window opens, as the window
+    /// is mostly for that.
+    @State private var page = SettingsPage.layouts
 
     private static let hint = "Click to split  ·  Drag a line to resize  ·  Right-click for more"
 
     /// This copy's version; "dev" for a build run outside its bundle, which has none.
-    private static let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "dev"
+    static let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "dev"
 
     var body: some View {
         // The whole window, the strip under the traffic lights included:
-        // the page draws its own header there.
+        // the sidebar draws the icon and the name there.
         GeometryReader { geometry in
-            page(geometry.size)
+            window(geometry.size)
         }
         .ignoresSafeArea()
     }
 
-    private func page(_ size: CGSize) -> some View {
+    private func window(_ size: CGSize) -> some View {
         ZStack(alignment: .topLeading) {
             Color.windowBack
-            header(width: size.width)
-            leftColumn(height: size.height)
-            if let display = model.selected {
-                rightColumn(display, size: size)
-            }
+            Sidebar(model: model, page: $page, height: size.height)
+            content(size)
         }
         .frame(width: size.width, height: size.height, alignment: .topLeading)
     }
 
-    // MARK: - Header
-
-    /// The icon and the name beside the traffic lights; at the other end
-    /// the version, the update button and the auto-update and start at
-    /// login switches.
-    private func header(width: CGFloat) -> some View {
-        Group {
-            HStack(spacing: 6) {
-                Image(nsImage: NSApp?.applicationIconImage ?? NSImage())
-                    .resizable()
-                    .interpolation(.high)
-                    .frame(width: 16, height: 16)
-                Text("Zones")
-                    .font(.system(size: 13))
-                    .foregroundStyle(Color.text)
+    @ViewBuilder
+    private func content(_ size: CGSize) -> some View {
+        let width = size.width - Metrics.pageX - Metrics.margin
+        let cardWidth = min(width, Metrics.cardMaxWidth)
+        switch page {
+        case .layouts:
+            if let display = model.selected {
+                layoutsPage(display, size: size)
             }
-            .place(Metrics.headerX, 0, height: Metrics.headerHeight, alignment: .leading)
+        case .snapping:
+            title(.snapping)
+            SnappingPage(model: model)
+                .place(Metrics.pageX, Metrics.cardsTop, width: cardWidth)
+        case .shortcuts:
+            title(.shortcuts)
+            ShortcutsPage(model: model, width: cardWidth)
+                .place(Metrics.pageX, Metrics.cardsTop, width: cardWidth)
+        case .general:
+            title(.general)
+            GeneralPage(model: model)
+                .place(Metrics.pageX, Metrics.cardsTop, width: cardWidth)
+        }
+    }
 
-            HStack(spacing: 16) {
-                HStack(spacing: 12) {
-                    Text("Version \(SettingsView.version)")
-                        .font(.system(size: 11))
-                        .foregroundStyle(Color.textDim)
-                    updateButton
-                }
-                HStack(spacing: 6) {
-                    Text("Auto-update")
-                        .font(.system(size: 11))
-                        .foregroundStyle(Color.text)
-                    Toggle("Auto-update", isOn: Binding(get: { model.config.autoUpdate },
-                                                        set: { model.setAutoUpdate($0) }))
-                        .labelsHidden()
-                        .toggleStyle(.switch)
-                        .controlSize(.small)
-                }
-                HStack(spacing: 6) {
-                    Text("Start at Login")
-                        .font(.system(size: 11))
-                        .foregroundStyle(Color.text)
-                    Toggle("Start at Login", isOn: Binding(get: { model.startsAtLogin },
-                                                           set: { model.setStartAtLogin($0) }))
-                        .labelsHidden()
-                        .toggleStyle(.switch)
-                        .controlSize(.small)
-                }
-            }
+    private func title(_ page: SettingsPage) -> some View {
+        Text(page.title)
+            .font(.system(size: 22, weight: .semibold))
+            .foregroundStyle(Color.text)
             .lineLimit(1)
-            .fixedSize()
-            .place(0, 0, width: width - Metrics.headerTrailing, height: Metrics.headerHeight, alignment: .trailing)
-        }
+            .place(Metrics.pageX, Metrics.titleY)
     }
 
-    // MARK: - Left column
-
-    private func leftColumn(height: CGFloat) -> some View {
-        let footnote = SnappingCard.footnote(model.takenSlots)
-        let footnoteRoom: CGFloat = footnote == nil ? 0 : 22
-
-        // The list gets what the card under it leaves, down to the bottom margin.
-        let room = height - Metrics.margin - footnoteRoom - SnappingCard.height - Metrics.headingGap
-            - Metrics.sectionGap - Metrics.listTop
-        let listHeight = DisplayList.height(for: model.displays.count, room: room)
-        let full = DisplayList.height(for: model.displays.count, room: .infinity)
-        let snappingY = Metrics.listTop + listHeight + Metrics.sectionGap
-        let cardY = snappingY + Metrics.headingGap
-
-        return Group {
-            Heading("Displays")
-                .place(Metrics.leftX, 56)
-            DisplayList(model: model, scrolls: listHeight < full)
-                .place(Metrics.leftX, Metrics.listTop, width: Metrics.leftWidth, height: listHeight)
-            Heading("Snapping")
-                .place(Metrics.leftX, snappingY)
-            SnappingCard(model: model)
-                .place(Metrics.leftX, cardY, width: Metrics.leftWidth, height: SnappingCard.height)
-            if let footnote {
-                Text(footnote)
-                    .font(.system(size: 11))
-                    .foregroundStyle(Color.danger)
-                    .lineLimit(1)
-                    .place(Metrics.leftX, cardY + SnappingCard.height + 8, width: Metrics.leftWidth)
-            }
-        }
-    }
-
-    // MARK: - Right column
+    // MARK: - Layouts
 
     @ViewBuilder
-    private func rightColumn(_ display: Display, size: CGSize) -> some View {
+    private func layoutsPage(_ display: Display, size: CGSize) -> some View {
         let layouts = model.layouts(of: display)
         let visible = display.visibleFrame.size
         let aspect = visible.height > 0 ? visible.width / visible.height : 16.0 / 9.0
-        let x = Metrics.rightX
+        let x = Metrics.pageX
         let width = size.width - x - Metrics.margin
         let cardBottom = size.height - Metrics.margin
 
-        titleRow(display)
-            .place(x, 50, width: width)
-        subtitle(display)
-            .place(x, 84, width: width)
+        displayRow
+            .place(x, Metrics.tabsY, width: width, height: Metrics.tabHeight)
 
-        Heading("Layouts")
-            .place(x, 128)
+        presetsHeading
+            .place(x, 128, width: width)
         LayoutTiles(model: model, aspect: aspect, width: width)
             .place(x, 156, width: width, height: Metrics.tileHeight)
 
@@ -170,14 +118,13 @@ struct SettingsView: View {
         }
     }
 
-    /// The display's name, and level with it the page's actions: the one
-    /// used most as a button, the rest in a menu.
-    private func titleRow(_ display: Display) -> some View {
-        HStack(alignment: .top, spacing: 16) {
-            Text(display.name)
-                .font(.system(size: 24, weight: .semibold))
-                .foregroundStyle(Color.text)
-                .lineLimit(1)
+    /// The displays as tabs, and level with them the page's actions on the
+    /// one picked: the one used most as a button, the rest in a menu. The
+    /// actions keep their room; the tabs narrow when they have to.
+    private var displayRow: some View {
+        HStack(spacing: 16) {
+            DisplayTabs(model: model)
+                .layoutPriority(1)
             Spacer(minLength: 0)
             HStack(spacing: 8) {
                 Button {
@@ -202,65 +149,24 @@ struct SettingsView: View {
                 .help("More")
             }
             .fixedSize()
-            .padding(.top, 4)
         }
     }
 
-    /// What the updater is doing, as a button: a check to start, then the
-    /// update it found in the accent colour, the one thing on the page
-    /// waiting on the user. Greyed out, saying so, while it is busy.
-    @ViewBuilder
-    private var updateButton: some View {
-        switch model.update {
-        case .idle, .failed:
-            Button {
-                model.checkForUpdates()
-            } label: {
-                Label("Check for Updates", systemImage: "arrow.triangle.2.circlepath")
-            }
-            .buttonStyle(.bordered)
-            .controlSize(.small)
-        case .checking:
-            Button {} label: {
-                Label("Checking…", systemImage: "arrow.triangle.2.circlepath")
-            }
-            .buttonStyle(.bordered)
-            .controlSize(.small)
-            .disabled(true)
-        case .available(let release):
-            Button {
-                model.installUpdate()
-            } label: {
-                Label("Update to \(release.version)", systemImage: "arrow.down.circle")
-            }
-            .buttonStyle(.borderedProminent)
-            .controlSize(.small)
-        case .downloading, .installing:
-            Button {} label: {
-                Label("Updating…", systemImage: "arrow.down.circle")
-            }
-            .buttonStyle(.borderedProminent)
-            .controlSize(.small)
-            .disabled(true)
-        }
-    }
-
-    /// "1800 × 1169  ·  Main"; for a moment after "Use on All Displays",
-    /// word that it worked, as nothing else on screen changes to show it.
-    private func subtitle(_ display: Display) -> some View {
-        ZStack(alignment: .topLeading) {
+    /// "Presets"; at the other end of its line, for a moment after "Use on
+    /// All Displays", word that it worked, as nothing else on screen changes
+    /// to show it.
+    private var presetsHeading: some View {
+        HStack(alignment: .firstTextBaseline, spacing: 16) {
+            Heading("Presets")
+            Spacer(minLength: 0)
             if model.copied {
                 Text("Copied to every display")
+                    .font(.system(size: 12))
                     .foregroundStyle(Color.accent)
-                    .transition(.opacity)
-            } else {
-                Text(SettingsModel.detail(display))
-                    .foregroundStyle(Color.textDim)
+                    .lineLimit(1)
                     .transition(.opacity)
             }
         }
-        .font(.system(size: 12))
-        .lineLimit(1)
         .animation(Motion.select, value: model.copied)
     }
 }

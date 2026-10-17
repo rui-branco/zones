@@ -28,12 +28,14 @@ extension Notification.Name {
 final class Updater {
     static let shared = Updater()
 
+    /// The release being installed rides along while it downloads and
+    /// installs, for the settings window to name it.
     enum State: Equatable {
         case idle
         case checking
         case available(Release)
-        case downloading
-        case installing
+        case downloading(Release)
+        case installing(Release)
         case failed(String)
     }
 
@@ -239,14 +241,14 @@ final class Updater {
     /// Downloads and checks `release` off the main thread, then swaps it in
     /// for `app`: at once when the user asked, once Zones is idle when not.
     private func download(_ release: Release, replacing app: URL, automatic: Bool) {
-        state = .downloading
+        state = .downloading(release)
         let folder = Updater.folder.appendingPathComponent(release.version, isDirectory: true)
         Task {
             do {
                 try Updater.clear(folder)
                 try await Download.run(release.sumsURL, to: folder.appendingPathComponent(UpdateCheck.sumsName))
                 try await Download.run(release.zipURL, to: folder.appendingPathComponent(UpdateCheck.zipName))
-                await MainActor.run { self.state = .installing }
+                await MainActor.run { self.state = .installing(release) }
                 let new = try await Task.detached { try Updater.unpack(release, in: folder) }.value
                 await MainActor.run {
                     if automatic {

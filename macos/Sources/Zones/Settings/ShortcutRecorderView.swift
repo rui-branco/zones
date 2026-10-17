@@ -16,7 +16,7 @@ final class ShortcutRecorderView: NSView {
     static let height: CGFloat = 24
 
     // Square at the least, and tight: ⌃⌥⇧⌘ Page Down still has to leave
-    // its row's title room in a 272-point column.
+    // its row's title room in the narrowest window.
     private static let capHeight: CGFloat = 20
     private static let innerCapHeight: CGFloat = 18     // a cap inside the recording box
     private static let capGap: CGFloat = 3
@@ -132,7 +132,7 @@ final class ShortcutRecorderView: NSView {
         let y = ((bounds.height - h) / 2).rounded()
         var x: CGFloat = 0
         for key in keys {
-            // Held narrower than its keys (see SnappingCard), the last one is
+            // Held narrower than its keys (see ShortcutsPage), the last one is
             // cut short: views do not clip their drawing, and anything past
             // the edge would run over the card's margin.
             let room = bounds.width - x

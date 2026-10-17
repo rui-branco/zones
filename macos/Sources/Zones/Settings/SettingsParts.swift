@@ -5,37 +5,54 @@ import ZonesCore
 /// Where everything in the settings window sits, in points from the top-left
 /// corner of its content. Placed rather than flowed, as the Windows version's
 /// parts are, so the two windows stay recognisably the same page; only the
-/// right column and the editor's card stretch with the window.
+/// page beside the sidebar and the editor's card stretch with the window.
 enum Metrics {
     /// The window's content size when it opens, and the snapshot's.
     static let size = CGSize(width: 1200, height: 680)
-    /// Below this the tiles and the zone editor get too cramped to use.
-    static let minSize = CGSize(width: 1000, height: 640)
+    /// Below this the tiles and the zone editor get too cramped to use. The
+    /// other pages, a card or two each, fit in less.
+    static let minSize = CGSize(width: 900, height: 600)
 
     /// The flat band at the top the traffic lights, the icon and the name share.
     static let headerHeight: CGFloat = 40
     /// Where the icon and the name start: clear of the traffic lights.
     static let headerX: CGFloat = 80
-    /// From the header's version and update controls to the window's right edge.
-    static let headerTrailing: CGFloat = 16
 
-    static let leftX: CGFloat = 24
-    static let leftWidth: CGFloat = 272
-    static let rightX: CGFloat = 320
+    /// The sidebar down the window's left side, its full height.
+    static let sidebarWidth: CGFloat = 220
+    /// The first section in the sidebar: level with the page's title, or
+    /// the display tabs, beside it.
+    static let navTop: CGFloat = 48
+    /// A section in the sidebar, the gap to the next, and the inset from the
+    /// sidebar's sides.
+    static let navItemHeight: CGFloat = 32
+    static let navGap: CGFloat = 4
+    static let navInset: CGFloat = 10
+    /// From the version at the sidebar's foot to its left and bottom edges.
+    static let footerMargin: CGFloat = 16
 
-    /// The margin to the window's right and bottom edges.
+    /// The margin round the page: clear of the sidebar, and to the window's
+    /// right and bottom edges.
     static let margin: CGFloat = 24
+    /// The page's left edge.
+    static let pageX: CGFloat = sidebarWidth + margin
 
-    static let listTop: CGFloat = 84
-    /// A display row.
+    /// A page's title.
+    static let titleY: CGFloat = 50
+    /// The Layouts page has the display tabs where the title would be: a
+    /// tab's height, and the gap between two.
+    static let tabsY: CGFloat = 48
+    static let tabHeight: CGFloat = 52
+    static let tabGap: CGFloat = 8
+
+    /// The first card under a page's title, and the gap between two.
+    static let cardsTop: CGFloat = 96
+    static let cardGap: CGFloat = 16
+    /// A row of a card: a title and a line under it.
     static let rowHeight: CGFloat = 52
-    /// Between display rows: tight enough for four to fit at the default height.
-    static let rowGap: CGFloat = 2
-
-    /// From a section heading's top to the thing it heads.
-    static let headingGap: CGFloat = 28
-    /// From the end of one section to the next heading.
-    static let sectionGap: CGFloat = 24
+    /// The widest a card grows: past that a row's words and its control
+    /// are too far apart to read as one.
+    static let cardMaxWidth: CGFloat = 860
 
     /// A preset tile's height, and the most one grows across a wide window:
     /// past that the miniatures only get emptier.
@@ -59,7 +76,8 @@ enum Motion {
         reduced ? nil : .easeOut(duration: duration)
     }
 
-    /// A selection moving: a display row's highlight, a tile's or chip's edge.
+    /// A selection moving: the sidebar's or the display tabs' pill, a tile's
+    /// or chip's edge.
     static var select: Animation? {
         ease(0.17)
     }
@@ -103,7 +121,6 @@ extension Color {
     static let textDim = Color(nsColor: .secondaryLabelColor)
     static let textFaint = Color(nsColor: .tertiaryLabelColor)
     static let hover = Color(nsColor: Palette.hover)
-    static let selectedRow = Color(nsColor: .quaternaryLabelColor)
     static let danger = Color(nsColor: .systemRed)
 }
 
@@ -116,7 +133,7 @@ extension View {
     }
 }
 
-/// A section's name over it: "Displays", "Snapping", "Layouts", "Zones".
+/// A section's name over it, on the Layouts page: "Presets", "Zones".
 struct Heading: View {
     let title: String
 
