@@ -97,7 +97,8 @@ try {
     Info "clean"
 
     Step "Checking HEAD is origin/main"
-    git fetch origin
+    # Its progress, and any new tags it brings, go to stderr.
+    Native { git fetch origin }
     Check "git fetch origin"
     $head = (git rev-parse HEAD).Trim()
     Check "git rev-parse HEAD"
