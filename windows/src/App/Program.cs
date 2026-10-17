@@ -2,6 +2,7 @@ using System;
 using System.Runtime.InteropServices;
 using System.Threading;
 using System.Windows.Forms;
+using Microsoft.Win32;
 
 namespace Zones
 {
@@ -105,6 +106,14 @@ namespace Zones
 
             ListenForSecondLaunch();
 
+            // Layouts still kept by a display's old device name, or by a
+            // monitor now in another connector, go to the monitors they belong
+            // to: now, and whenever displays come, go or are numbered afresh.
+            // Subscribed with the owner made, so the change arrives on this
+            // thread, where everything else that reads the layouts runs.
+            AdoptLayouts();
+            SystemEvents.DisplaySettingsChanged += delegate { AdoptLayouts(); };
+
             Tray.Start(_config);
 
             // Drag any window onto a zone, or press the shortcut, to snap it.
@@ -178,6 +187,19 @@ namespace Zones
                 Updater.CheckForUpdates(false);
             };
             _updateTimer.Start();
+        }
+
+        /// <summary>Moves layouts to the attached monitors they belong to (see AppConfig.Adopt), saving if any moved.</summary>
+        static void AdoptLayouts()
+        {
+            try
+            {
+                if (_config.Adopt(Displays.All())) _config.Save();
+            }
+            catch (Exception ex)
+            {
+                LogError(ex);
+            }
         }
 
         static bool HasArg(string name)

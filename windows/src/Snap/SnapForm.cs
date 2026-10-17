@@ -436,7 +436,7 @@ namespace Zones
                 if (MessageBox.Show(this, "Reset " + name + "?\n\n" + lost + " back to the default. This can't be undone.",
                         "Zones", MessageBoxButtons.OKCancel, MessageBoxIcon.Warning) != DialogResult.OK) return;
 
-                _config.SnapLayouts.Remove(d.Device);
+                _config.Forget(d);
                 _config.Save();
                 LoadDisplay();
             };

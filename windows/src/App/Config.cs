@@ -27,9 +27,11 @@ namespace Zones
         /// <summary>The gap around each zone, in logical pixels: scaled to each display.</summary>
         public int SnapSpacing { get; set; }
         /// <summary>
-        /// Each display's own layouts, by device name (\\.\DISPLAY1): one or
-        /// more sizes, one active. A display with none here gets the default
-        /// for its shape; see LayoutsFor.
+        /// Each display's own layouts, by the monitor (see Display.Key): one
+        /// or more sizes, one active. A display with none here gets the
+        /// default for its shape; see LayoutsFor. Before 1.0.5 they were kept
+        /// by device name (\\.\DISPLAY1), which Windows hands out afresh now
+        /// and then; <see cref="Adopt"/> moves those over.
         /// </summary>
         public Dictionary<string, DisplayLayouts> SnapLayouts { get; private set; }
         /// <summary>
@@ -96,10 +98,17 @@ namespace Zones
         /// </summary>
         public DisplayLayouts LayoutsFor(Display display)
         {
+            // By the monitor; or, not yet moved over by Adopt, by the device
+            // name they were kept by before.
             DisplayLayouts layouts;
-            if (display.Device != null && SnapLayouts.TryGetValue(display.Device, out layouts) && layouts != null)
-                return layouts;
+            if (Stored(display.Key, out layouts) || Stored(display.Device, out layouts)) return layouts;
             return new DisplayLayouts(ZoneLayout.Default(display.Work.Size));
+        }
+
+        bool Stored(string key, out DisplayLayouts layouts)
+        {
+            layouts = null;
+            return key != null && SnapLayouts.TryGetValue(key, out layouts) && layouts != null;
         }
 
         /// <summary>The layout a display is using now: its active size.</summary>
@@ -111,7 +120,76 @@ namespace Zones
         /// <summary>Stores a display's layouts (for instance a default that has just been edited).</summary>
         public void Keep(Display display, DisplayLayouts layouts)
         {
-            if (display.Device != null) SnapLayouts[display.Device] = layouts;
+            string key = display.Key;
+            if (key == null) return;
+            SnapLayouts[key] = layouts;
+            // Kept by the monitor now, so not by the device name as well,
+            // where they would go to whichever display is given that name next.
+            if (display.Device != null && !string.Equals(key, display.Device, StringComparison.OrdinalIgnoreCase))
+                SnapLayouts.Remove(display.Device);
+        }
+
+        /// <summary>A display's layouts are dropped, wherever they are kept: it goes back to the default.</summary>
+        public void Forget(Display display)
+        {
+            if (display.Key != null) SnapLayouts.Remove(display.Key);
+            if (display.Device != null) SnapLayouts.Remove(display.Device);
+        }
+
+        /// <summary>
+        /// Files layouts under the monitors they belong to, for each attached
+        /// display that has none of its own yet: those still kept by the
+        /// display's device name, as Zones kept them before 1.0.5; failing
+        /// that, those of a monitor of the same make and model that is not
+        /// attached, as when the same screen goes into another connector.
+        /// True when anything moved, for the caller to save.
+        /// </summary>
+        public bool Adopt(List<Display> displays)
+        {
+            bool moved = false;
+            HashSet<string> attached = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            foreach (Display d in displays)
+            {
+                if (d.Key != null) attached.Add(d.Key);
+                if (d.Device != null) attached.Add(d.Device);
+            }
+
+            foreach (Display d in displays)
+            {
+                string key = d.Key;
+                if (d.Monitor == null || SnapLayouts.ContainsKey(key)) continue;
+
+                DisplayLayouts layouts;
+                if (Stored(d.Device, out layouts))
+                {
+                    SnapLayouts.Remove(d.Device);
+                    SnapLayouts[key] = layouts;
+                    moved = true;
+                    continue;
+                }
+
+                string model = ModelOf(key);
+                if (model == null) continue;
+                foreach (string other in new List<string>(SnapLayouts.Keys))
+                {
+                    if (attached.Contains(other) || !string.Equals(ModelOf(other), model, StringComparison.OrdinalIgnoreCase)) continue;
+                    layouts = SnapLayouts[other];
+                    SnapLayouts.Remove(other);
+                    SnapLayouts[key] = layouts;
+                    attached.Add(key);
+                    moved = true;
+                    break;
+                }
+            }
+            return moved;
+        }
+
+        /// <summary>The make and model in a monitor's key (SAM72F2 in DISPLAY#SAM72F2#...), or null for any other key.</summary>
+        static string ModelOf(string key)
+        {
+            if (key == null) return null;
+            string[] parts = key.Split('#');
+            return parts.Length >= 3 && string.Equals(parts[0], "DISPLAY", StringComparison.OrdinalIgnoreCase) ? parts[1] : null;
         }
 
         /// <summary>The widest gap the settings window offers, in logical pixels.</summary>

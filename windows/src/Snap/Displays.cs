@@ -8,8 +8,47 @@ namespace Zones
     /// <summary>One display, as snapping sees it.</summary>
     public sealed class Display
     {
-        /// <summary>The GDI device name (\\.\DISPLAY1). Layouts are kept by it.</summary>
+        /// <summary>
+        /// The GDI device name (\\.\DISPLAY1): which display this is for as
+        /// long as nothing changes. Windows hands the names out afresh when
+        /// displays come and go, after sleep or a driver update, so the
+        /// ultrawide that was DISPLAY1 this morning can be DISPLAY2 now.
+        /// Layouts are kept by <see cref="Key"/> instead.
+        /// </summary>
         public string Device;
+
+        string _monitor;
+        bool _monitorAsked;
+
+        /// <summary>
+        /// The monitor plugged in, by the device path Windows gives it, cut
+        /// to the part that names it: DISPLAY#SAM72F2#5&amp;92adb24&amp;0&amp;UID4352,
+        /// its make and model, then the connector it is on. It stays with the
+        /// screen however Windows numbers its displays. Null when Windows does
+        /// not say, as over Remote Desktop. Asked for only when wanted.
+        /// </summary>
+        public string Monitor
+        {
+            get
+            {
+                if (!_monitorAsked)
+                {
+                    _monitor = Displays.MonitorOf(Device);
+                    _monitorAsked = true;
+                }
+                return _monitor;
+            }
+        }
+
+        /// <summary>What the display's layouts are kept by: the monitor, or failing that the device name.</summary>
+        public string Key
+        {
+            get
+            {
+                string monitor = Monitor;
+                return !string.IsNullOrEmpty(monitor) ? monitor : Device;
+            }
+        }
 
         /// <summary>The number in the device name, which is what Windows numbers it by too.</summary>
         public int Number;
@@ -90,6 +129,69 @@ namespace Zones
             return d;
         }
 
+        // Which monitor is on which device name, asked of Windows at most
+        // every few seconds: a drag looks its display up every frame, and the
+        // answer only changes when displays are plugged in, taken away or
+        // numbered afresh.
+        static readonly Dictionary<string, string> _monitors = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        static int _monitorsAt;
+        const int MonitorsMs = 3000;
+
+        /// <summary>The monitor on a display's output (see <see cref="Display.Monitor"/>), or null.</summary>
+        public static string MonitorOf(string device)
+        {
+            if (string.IsNullOrEmpty(device)) return null;
+            int now = Environment.TickCount;
+            if (now - _monitorsAt > MonitorsMs || now < _monitorsAt)
+            {
+                _monitors.Clear();
+                _monitorsAt = now;
+            }
+
+            string monitor;
+            if (_monitors.TryGetValue(device, out monitor)) return monitor;
+            monitor = AskMonitor(device);
+            _monitors[device] = monitor;
+            return monitor;
+        }
+
+        /// <summary>
+        /// The active monitor on an adapter output, as Windows' device path for
+        /// it, \\?\DISPLAY#SAM72F2#5&amp;92adb24&amp;0&amp;UID4352#{e6f07b5f-...}, without
+        /// the prefix and the interface's GUID, which are the same for every
+        /// monitor.
+        /// </summary>
+        static string AskMonitor(string device)
+        {
+            try
+            {
+                string first = null;
+                for (uint i = 0; ; i++)
+                {
+                    DISPLAY_DEVICE dd = new DISPLAY_DEVICE();
+                    dd.cb = Marshal.SizeOf(typeof(DISPLAY_DEVICE));
+                    if (!EnumDisplayDevices(device, i, ref dd, EDD_GET_DEVICE_INTERFACE_NAME)) break;
+                    if (string.IsNullOrEmpty(dd.DeviceID)) continue;
+                    if ((dd.StateFlags & DISPLAY_DEVICE_ACTIVE) != 0) return Shorten(dd.DeviceID);
+                    if (first == null) first = dd.DeviceID;
+                }
+                return first != null ? Shorten(first) : null;
+            }
+            catch
+            {
+                return null;
+            }
+        }
+
+        static string Shorten(string path)
+        {
+            string s = path;
+            if (s.StartsWith(@"\\?\", StringComparison.Ordinal)) s = s.Substring(4);
+            int guid = s.LastIndexOf("#{", StringComparison.Ordinal);
+            if (guid > 0) s = s.Substring(0, guid);
+            return s;
+        }
+
         static int NumberOf(string device)
         {
             int end = device.Length, start = end;
@@ -112,6 +214,26 @@ namespace Zones
 
         const int MONITOR_DEFAULTTONEAREST = 2;
         const int MONITORINFOF_PRIMARY = 1;
+        const uint EDD_GET_DEVICE_INTERFACE_NAME = 1;
+        const int DISPLAY_DEVICE_ACTIVE = 1;
+
+        [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
+        struct DISPLAY_DEVICE
+        {
+            public int cb;
+            [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 32)]
+            public string DeviceName;
+            [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 128)]
+            public string DeviceString;
+            public int StateFlags;
+            [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 128)]
+            public string DeviceID;
+            [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 128)]
+            public string DeviceKey;
+        }
+
+        [DllImport("user32.dll", CharSet = CharSet.Unicode)]
+        static extern bool EnumDisplayDevices(string device, uint index, ref DISPLAY_DEVICE dd, uint flags);
 
         [StructLayout(LayoutKind.Sequential)]
         struct POINT { public int X, Y; }
