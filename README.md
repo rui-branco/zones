@@ -63,7 +63,7 @@ menu bar on macOS.
 
 <table align="center">
   <tr>
-    <td><img src="docs/settings-dark.png" alt="The settings window in dark mode: Display 1, a 3440 by 1440 ultrawide, on the second of three sizes of a wide centre, with the snapping options and shortcuts on the left" width="400"></td>
+    <td><img src="docs/settings-dark.png" alt="The settings window in dark mode: Display 1, a 3440 by 1440 ultrawide, on the second of three sizes of a wide centre, with the menu of pages on the left" width="400"></td>
     <td><img src="docs/settings-light.png" alt="The same settings window in light mode" width="400"></td>
   </tr>
   <tr>
@@ -74,9 +74,9 @@ menu bar on macOS.
 <p align="center"><sub>The settings window on Windows: an ultrawide with three sizes of a wide centre, the second in use.</sub></p>
 
 <p align="center">
-  <img src="docs/settings-mac.png" alt="The settings window on macOS: the built-in display on Halves, with the snapping options and shortcuts shown in Mac key symbols" width="640">
+  <img src="docs/settings-mac.png" alt="The settings window on macOS: the built-in display on Halves, with the same menu of Layouts, Snapping, Shortcuts and General down the left" width="640">
 </p>
-<p align="center"><sub><b>On macOS</b>, the same window in AppKit, with the Mac's own keys.</sub></p>
+<p align="center"><sub><b>On macOS</b>, the same window and the same pages, with the Mac's own keys.</sub></p>
 
 ## Install
 
@@ -120,7 +120,7 @@ Accessibility. Use the menu bar icon for **Start at Login**.
 | Active window to its previous zone | <kbd>Ctrl</kbd>+<kbd>Alt</kbd>+<kbd>Shift</kbd>+<kbd>Z</kbd> | <kbd>⌃</kbd><kbd>⌥</kbd><kbd>⇧</kbd><kbd>Z</kbd> |
 | Display to its next size | <kbd>Ctrl</kbd>+<kbd>Alt</kbd>+<kbd>X</kbd> | <kbd>⌃</kbd><kbd>⌥</kbd><kbd>X</kbd> |
 | Display to its previous size | <kbd>Ctrl</kbd>+<kbd>Alt</kbd>+<kbd>Shift</kbd>+<kbd>X</kbd> | <kbd>⌃</kbd><kbd>⌥</kbd><kbd>⇧</kbd><kbd>X</kbd> |
-| Open the settings | Click the tray icon | Menu bar icon → **Snap Layouts…** |
+| Open the settings | Click the tray icon | Menu bar icon → **Settings…** |
 
 A window dragged out of a zone gets its own size back. Switching sizes, by
 shortcut, by wheel or in the settings window, moves every window snapped on that
@@ -131,23 +131,27 @@ keys you want, or <kbd>Backspace</kbd> to turn it off.
 
 ## The settings window
 
-Open it from the tray icon on Windows or the menu bar icon on macOS.
+Open it from the tray icon on Windows or the menu bar icon on macOS. A menu
+down the left has four pages, with the version running at its foot.
 
-- **Displays** on the left; pick one and its layout shows on the right, drawn
-  to the display's real proportions with each zone's size in pixels.
-- **Layouts**: click a ready-made one to start from it.
-- **Sizes**: the strip beside "Zones". **+** copies the current size so you can
-  drag its lines somewhere else; click a size to switch to it; right-click to
-  remove one.
-- **Zones**: click to split, <kbd>Shift</kbd>+click to split across, drag a
-  line to resize (it clicks into halves, thirds and quarters on the way unless
-  you hold <kbd>Alt</kbd>/<kbd>⌥</kbd>), right-click to remove a zone.
-- **Show on screen** draws the layout over the real display. The **⋯** menu
-  beside it has **Use on all displays**, which copies the layout, sizes and
-  all, and **Reset this display**, back to the default.
+- **Layouts**: a tab for each display across the top; pick one and its layout
+  shows underneath, drawn to the display's real proportions with each zone's
+  size in pixels.
+  - **Presets**: click a ready-made layout to start from it.
+  - **Sizes**: the strip beside "Zones". **+** copies the current size so you
+    can drag its lines somewhere else; click a size to switch to it;
+    right-click to remove one.
+  - **Zones**: click to split, <kbd>Shift</kbd>+click to split across, drag a
+    line to resize (it clicks into halves, thirds and quarters on the way
+    unless you hold <kbd>Alt</kbd>/<kbd>⌥</kbd>), right-click to remove a zone.
+  - **Show on screen** draws the layout over the real display. The **⋯** menu
+    beside it has **Use on all displays**, which copies the layout, sizes and
+    all, and **Reset this display**, back to the default.
 - **Snapping**: turn snapping off, show zones on every drag instead of only
-  with Shift (Shift then holds them back), the gap around each zone, and the
-  four shortcuts.
+  with Shift (Shift then holds them back), and the gap around each zone.
+- **Shortcuts**: the four shortcuts, each with what it does.
+- **General**: start with Windows (at login on macOS), automatic updates, and
+  the version, with a button to check for a newer one.
 
 Every change is saved as you make it. The window can be resized; the zone
 editor grows with it.
@@ -162,10 +166,11 @@ does not match. Zones then installs it by itself the next time it is idle, not
 in the middle of a drag and not with the settings window open, and restarts in
 a second.
 
-To choose the moment yourself, turn off **Install updates automatically** in
-the tray menu or the menu bar menu. A new release then shows as **Update to
-Zones 1.1.0** in that menu, and as an **Update** button in the settings window,
-and nothing changes until you click one of them.
+To choose the moment yourself, turn off **Auto-update** on the settings
+window's General page (or **Install updates automatically** in the tray menu or
+the menu bar menu). A new release then shows as **Update to Zones 1.1.0** in
+that menu, and as an **Update to 1.1.0** button at the foot of the settings
+window's menu, and nothing changes until you click one of them.
 
 On Windows the running executable is moved aside and the new one swapped in.
 On macOS, Zones.app is replaced in place when it is in Applications, one more
