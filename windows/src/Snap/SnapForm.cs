@@ -31,11 +31,12 @@ namespace Zones
     public class SnapForm : Form
     {
         const int WS_MINIMIZEBOX = 0x00020000;
+        const int WS_THICKFRAME = 0x00040000;
         const int WS_SYSMENU = 0x00080000;
-        const int CS_DROPSHADOW = 0x00020000;
         const int WM_SETTINGCHANGE = 0x001A;
         const int WM_GETMINMAXINFO = 0x0024;
         const int WM_DISPLAYCHANGE = 0x007E;
+        const int WM_NCCALCSIZE = 0x0083;
         const int WM_NCHITTEST = 0x0084;
         const int WM_NCLBUTTONDBLCLK = 0x00A3;
         const int WM_DPICHANGED = 0x02E0;
@@ -50,9 +51,14 @@ namespace Zones
         const int HTBOTTOM = 15;
         const int HTBOTTOMLEFT = 16;
         const int HTBOTTOMRIGHT = 17;
+        const int SM_CXSIZEFRAME = 32;
+        const int SM_CYSIZEFRAME = 33;
+        const int SM_CXPADDEDBORDER = 92;
 
         const string Hint = "Click to split  ·  Drag a line to resize  ·  Right-click for more";
         const string CopiedText = "Copied to every display";
+        const string AutoUpdateText = "Auto-update";
+        const string StartupText = "Start with Windows";
 
         // In logical pixels: the size the window opens at, room permitting,
         // and the smallest it can be made, below which the columns crowd (at
@@ -130,6 +136,8 @@ namespace Zones
         readonly ContextMenuStrip _moreMenu = new ContextMenuStrip();
         readonly ToolStripMenuItem _allItem;
         readonly ZoneEditor _editor = new ZoneEditor();
+        readonly ToggleSwitch _autoUpdateToggle = new ToggleSwitch();
+        readonly ToggleSwitch _startupToggle = new ToggleSwitch();
         readonly CaptionButton _minimizeButton = new CaptionButton();
         readonly CaptionButton _closeButton = new CaptionButton();
 
@@ -172,7 +180,10 @@ namespace Zones
             _s = Dpi.ScaleAt(Cursor.Position);
             Display here = Displays.At(Cursor.Position);
             Rectangle area = here != null ? here.Work : Screen.PrimaryScreen.WorkingArea;
-            ClientSize = new Size(Math.Min(R(OpenW), (int)(area.Width * 0.92)), Math.Min(R(OpenH), (int)(area.Height * 0.92)));
+            // Size, not ClientSize: the window is all client (see
+            // WM_NCCALCSIZE), but WinForms works a client size out from the
+            // style, and would add the sizing frame nobody sees to it.
+            Size = new Size(Math.Min(R(OpenW), (int)(area.Width * 0.92)), Math.Min(R(OpenH), (int)(area.Height * 0.92)));
             Location = new Point(area.Left + (area.Width - Width) / 2, area.Top + (area.Height - Height) / 2);
 
             _snapToggle.OnCard = true;
@@ -340,12 +351,33 @@ namespace Zones
                 LoadDisplay();
             };
 
-            // A newer Zones, once the updater knows of one: the page's accent
-            // button, in the header where it is seen, not only in the menu.
-            _updateButton.Accent = true;
-            _updateButton.Glyph = 0xE896;
-            _updateButton.Click += delegate { Updater.StartUpdate(); };
+            // In the title bar, beside the version: a check asked for, which
+            // says what it found, or once a newer Zones is known, the accent
+            // button that installs it. The tray menu's item does the same.
+            _updateButton.Click += delegate
+            {
+                if (Updater.Available != null) Updater.StartUpdate();
+                else Updater.CheckForUpdates(true);
+            };
             Updater.UpdateStateChanged += OnUpdateStateChanged;
+
+            // The two settings the tray menu also has, which go through it so
+            // the menu's checkmarks and these switches never disagree. Set
+            // from the menu, a switch is only following: already done.
+            _autoUpdateToggle.ShowLabel = false;
+            _autoUpdateToggle.Checked = _config.AutoUpdate;
+            _autoUpdateToggle.CheckedChanged += delegate
+            {
+                if (_autoUpdateToggle.Checked != _config.AutoUpdate) Tray.SetAutoUpdate(_autoUpdateToggle.Checked);
+            };
+
+            _startupToggle.ShowLabel = false;
+            _startupToggle.Checked = _config.StartWithWindows;
+            _startupToggle.CheckedChanged += delegate
+            {
+                if (_startupToggle.Checked != _config.StartWithWindows) Tray.SetStartWithWindows(_startupToggle.Checked);
+            };
+            Tray.SettingsChanged += OnTraySettingsChanged;
 
             _showButton.Text = "Show on screen";
             _showButton.Glyph = 0xE7F4;
@@ -361,6 +393,15 @@ namespace Zones
             {
                 Display d = _displayPicker.Selected;
                 if (d == null) return;
+
+                // Its sizes may be an afternoon's work, and one stray click
+                // in the menu must not take them.
+                int sizes = _config.LayoutsFor(d).Sizes.Count;
+                string name = d.Number > 0 ? "Display " + d.Number : "this display";
+                string lost = sizes == 1 ? "Its layout goes" : "Its layout and all " + sizes + " sizes go";
+                if (MessageBox.Show(this, "Reset " + name + "?\n\n" + lost + " back to the default. This can't be undone.",
+                        "Zones", MessageBoxButtons.OKCancel, MessageBoxIcon.Warning) != DialogResult.OK) return;
+
                 _config.SnapLayouts.Remove(d.Device);
                 _config.Save();
                 LoadDisplay();
@@ -395,7 +436,8 @@ namespace Zones
             Activated += delegate { LoadDisplay(); };
             Hotkey.Pressed += OnHotkey;
 
-            // In tab order; the caption buttons are not tab stops.
+            // In tab order, the page before the title bar's settings; the
+            // caption buttons are not tab stops.
             Controls.Add(_displayPicker);
             Controls.Add(_snapToggle);
             Controls.Add(_shiftToggle);
@@ -404,12 +446,14 @@ namespace Zones
             Controls.Add(_zoneBackBox);
             Controls.Add(_sizeBox);
             Controls.Add(_sizeBackBox);
-            Controls.Add(_updateButton);
             Controls.Add(_showButton);
             Controls.Add(_moreButton);
             Controls.Add(_layoutPicker);
             Controls.Add(_sizeStrip);
             Controls.Add(_editor);
+            Controls.Add(_updateButton);
+            Controls.Add(_autoUpdateToggle);
+            Controls.Add(_startupToggle);
             Controls.Add(_minimizeButton);
             Controls.Add(_closeButton);
 
@@ -597,22 +641,36 @@ namespace Zones
         }
 
         /// <summary>
-        /// The header's update button follows the updater: shown only while a
-        /// newer Zones is known, and saying so until it is being installed.
+        /// The title bar's update button follows the updater, as the tray
+        /// menu's item does: a check to ask for, the check under way, the
+        /// newer Zones it found in the accent, and that being installed.
         /// </summary>
         void ShowUpdate()
         {
             ReleaseInfo update = Updater.Available;
-            _updateButton.Visible = update != null;
-            _updateButton.Enabled = !Updater.Updating;
-            if (Updater.Updating) _updateButton.Text = "Updating...";
+            bool found = update != null && !Updater.Checking;
+            _updateButton.Enabled = !Updater.Checking && !Updater.Updating;
+            _updateButton.Accent = found;
+            _updateButton.Glyph = found ? 0xE896 : 0xE895;
+            if (Updater.Updating) _updateButton.Text = "Updating…";
+            else if (Updater.Checking) _updateButton.Text = "Checking…";
             else if (update != null) _updateButton.Text = "Update to " + Updater.VersionText(update.Version);
-            Arrange();      // the button is as wide as its words, and there or not
+            else _updateButton.Text = "Check for updates";
+            Arrange();      // the button is as wide as its words,
+            Invalidate();   // and the version is painted beside it
         }
 
         void OnUpdateStateChanged(object sender, EventArgs e)
         {
             if (!IsDisposed) ShowUpdate();
+        }
+
+        /// <summary>A setting changed from the tray menu: the switch for it follows.</summary>
+        void OnTraySettingsChanged(object sender, EventArgs e)
+        {
+            if (IsDisposed) return;
+            _autoUpdateToggle.Checked = _config.AutoUpdate;
+            _startupToggle.Checked = _config.StartWithWindows;
         }
 
         /// <summary>A display came or went: list them again, staying on the same one if it is still there.</summary>
@@ -639,6 +697,8 @@ namespace Zones
             _showButton.Scale = _s;
             _moreButton.Scale = _s;
             _editor.Scale = _s;
+            _autoUpdateToggle.Scale = _s;
+            _startupToggle.Scale = _s;
             _minimizeButton.Scale = _s;
             _closeButton.Scale = _s;
         }
@@ -659,6 +719,20 @@ namespace Zones
             // down so the edge above them still resizes the window.
             _minimizeButton.Bounds = Logical(width - 92, 1, 46, HeaderH - 1);
             _closeButton.Bounds = Logical(width - 46, 1, 46, HeaderH - 1);
+
+            // The title bar's settings, right to left from the caption buttons
+            // and centred in the band: each switch with its name painted 8 to
+            // its left, 16 between the two, then the update button, with the
+            // version painted 12 to the left of that (see PaintHeader). The
+            // names are measured as the buttons measure theirs.
+            Font small = Theme.Font(12 * _s);
+            int switchTop = R((HeaderH - 32) / 2f);
+            _startupToggle.Bounds = new Rectangle(_minimizeButton.Left - R(12) - R(40), switchTop, R(40), R(32));
+            int startupName = TextRenderer.MeasureText(StartupText, small).Width;
+            _autoUpdateToggle.Bounds = new Rectangle(_startupToggle.Left - R(8) - startupName - R(16) - R(40), switchTop, R(40), R(32));
+            int autoUpdateName = TextRenderer.MeasureText(AutoUpdateText, small).Width;
+            int updateW = _updateButton.PreferredWidth();
+            _updateButton.Bounds = new Rectangle(_autoUpdateToggle.Left - R(8) - autoUpdateName - R(16) - updateW, R((HeaderH - 28) / 2f), updateW, R(28));
 
             // The left column: the displays as tall as their rows, but never
             // so tall that the snapping card under them ends lower than 20
@@ -691,13 +765,10 @@ namespace Zones
 
             // The page's buttons, level with its title, right to left from the
             // column's edge: "More" square with only its glyph, then "Show on
-            // screen" 8 to its left, and the update, when there is one, 8 to
-            // the left of that.
+            // screen" 8 to its left.
             _moreButton.Bounds = Logical(right - 32, 56, 32, 32);
             int show = _showButton.PreferredWidth();
             _showButton.Bounds = new Rectangle(_moreButton.Left - R(8) - show, R(56), show, R(88) - R(56));
-            int update = _updateButton.PreferredWidth();
-            _updateButton.Bounds = new Rectangle(_showButton.Left - R(8) - update, R(56), update, R(88) - R(56));
 
             // The tiles grow with the column, up to 120 each; past that the
             // row stops widening and keeps to the column's left edge.
@@ -757,7 +828,9 @@ namespace Zones
 
         /// <summary>
         /// The title bar: the Zones mark and the window's name on the window's
-        /// own colour, with no line under it. The caption buttons are controls.
+        /// own colour, with no line under it, and at the right the version
+        /// and the names of the two switches. The caption buttons, the update
+        /// button and the switches are controls.
         /// </summary>
         void PaintHeader(Graphics g)
         {
@@ -768,6 +841,27 @@ namespace Zones
                 f.LineAlignment = StringAlignment.Center;
                 f.FormatFlags = StringFormatFlags.NoWrap;
                 g.DrawString(Text, Theme.Font(12 * _s), b, new RectangleF(R(40), 0, _minimizeButton.Left - R(40), R(HeaderH)), f);
+            }
+
+            DrawHeaderLabel(g, "Version " + Updater.CurrentText, Theme.TextDim, _updateButton.Left - R(12));
+            DrawHeaderLabel(g, AutoUpdateText, Theme.Text, _autoUpdateToggle.Left - R(8));
+            DrawHeaderLabel(g, StartupText, Theme.Text, _startupToggle.Left - R(8));
+        }
+
+        /// <summary>
+        /// Words in the title bar, centred in it and ending at <paramref name="right"/>:
+        /// right-aligned, so they end where the layout put the gap however
+        /// GDI+ measures them.
+        /// </summary>
+        void DrawHeaderLabel(Graphics g, string text, Color color, int right)
+        {
+            using (SolidBrush b = new SolidBrush(color))
+            using (StringFormat f = new StringFormat())
+            {
+                f.Alignment = StringAlignment.Far;
+                f.LineAlignment = StringAlignment.Center;
+                f.FormatFlags = StringFormatFlags.NoWrap;
+                g.DrawString(text, Theme.Font(12 * _s), b, RectangleF.FromLTRB(R(40), 0, right, R(HeaderH)), f);
             }
         }
 
@@ -909,9 +1003,11 @@ namespace Zones
                 CreateParams cp = base.CreateParams;
                 // Borderless, but with a system menu and a minimize box all the
                 // same: without them, clicking the taskbar button would not
-                // minimize it.
-                cp.Style |= WS_MINIMIZEBOX | WS_SYSMENU;
-                cp.ClassStyle |= CS_DROPSHADOW;
+                // minimize it. And a sizing frame: Windows starts a resize
+                // from the edges the hit test reports only on a window that
+                // has one. WM_NCCALCSIZE keeps it from being seen, and DWM
+                // gives a framed window its shadow, so the class needs none.
+                cp.Style |= WS_MINIMIZEBOX | WS_SYSMENU | WS_THICKFRAME;
                 return cp;
             }
         }
@@ -974,6 +1070,28 @@ namespace Zones
             if (m.Msg == WM_NCLBUTTONDBLCLK)
             {
                 return;     // the header is a title bar, but there is nothing to maximize to
+            }
+            if (m.Msg == WM_NCCALCSIZE && m.WParam != IntPtr.Zero)
+            {
+                // The sizing frame is there for Windows to resize by, not to
+                // be seen: the whole window stays client area. Maximized all
+                // the same (Windows snapping it to the top of a display),
+                // the frame hangs off the display's edges, so the client
+                // area is pulled in by as much or its edges would be cut off.
+                if (IsZoomed(Handle))
+                {
+                    RECT r = (RECT)Marshal.PtrToStructure(m.LParam, typeof(RECT));
+                    int padded = GetSystemMetrics(SM_CXPADDEDBORDER);
+                    int x = GetSystemMetrics(SM_CXSIZEFRAME) + padded;
+                    int y = GetSystemMetrics(SM_CYSIZEFRAME) + padded;
+                    r.Left += x;
+                    r.Top += y;
+                    r.Right -= x;
+                    r.Bottom -= y;
+                    Marshal.StructureToPtr(r, m.LParam, false);
+                }
+                m.Result = IntPtr.Zero;
+                return;
             }
 
             base.WndProc(ref m);
@@ -1039,6 +1157,7 @@ namespace Zones
             base.OnFormClosed(e);
             Hotkey.Pressed -= OnHotkey;
             Updater.UpdateStateChanged -= OnUpdateStateChanged;
+            Tray.SettingsChanged -= OnTraySettingsChanged;
             if (_open == this) _open = null;
             // Closed mid-recording, by Zones quitting say: the shortcuts were
             // let go for the recording, so they are taken back.
@@ -1054,6 +1173,11 @@ namespace Zones
                 _applied = null;
             }
             _moreMenu.Dispose();
+
+            // The window's controls, fonts and bitmaps are garbage now, and
+            // Zones goes back to sitting in the tray: a moment later, once
+            // the window is gone, their memory goes back to Windows.
+            Memory.TrimAfter(2000);
         }
 
         [StructLayout(LayoutKind.Sequential)]
@@ -1064,5 +1188,11 @@ namespace Zones
 
         [StructLayout(LayoutKind.Sequential)]
         struct MINMAXINFO { public POINT Reserved, MaxSize, MaxPosition, MinTrackSize, MaxTrackSize; }
+
+        [DllImport("user32.dll")]
+        static extern bool IsZoomed(IntPtr hWnd);
+
+        [DllImport("user32.dll")]
+        static extern int GetSystemMetrics(int index);
     }
 }

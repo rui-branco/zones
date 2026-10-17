@@ -18,11 +18,28 @@ namespace Zones
         static NotifyIcon _icon;
         static ContextMenuStrip _menu;
         static ToolStripMenuItem _updateItem;
+        static ToolStripMenuItem _startupItem;
+        static ToolStripMenuItem _autoUpdateItem;
+
+        const string RunKey = @"Software\Microsoft\Windows\CurrentVersion\Run";
+
+        /// <summary>
+        /// "Start with Windows" or automatic updates was turned on or off, by
+        /// the menu or the settings window: the settings window's switches
+        /// follow, as the menu's checkmarks do.
+        /// </summary>
+        public static event EventHandler SettingsChanged;
 
         public static void Start(AppConfig config)
         {
             _config = config;
             _menu = BuildMenu();
+
+            // Starting with Windows, but the Run key no longer says this exe:
+            // Zones was moved or reinstalled somewhere else, or a cleanup tool
+            // took the value. It is told again, so the setting keeps working.
+            if (_config.StartWithWindows && !StartupIsHere()) SetStartup(true);
+
             Updater.UpdateStateChanged += delegate { RefreshUpdateItem(); };
 
             _icon = new NotifyIcon();
@@ -70,15 +87,9 @@ namespace Zones
             ToolStripMenuItem snap = Theme.MenuItem("Snap layouts...", 0xE80A);
             snap.Click += delegate { SnapForm.ShowFor(_config); };
 
-            ToolStripMenuItem startup = Theme.MenuItem("Start with Windows", 0);
-            startup.Checked = _config.StartWithWindows;
-            startup.Click += delegate
-            {
-                _config.StartWithWindows = !_config.StartWithWindows;
-                startup.Checked = _config.StartWithWindows;
-                SetStartup(_config.StartWithWindows);
-                _config.Save();
-            };
+            _startupItem = Theme.MenuItem("Start with Windows", 0);
+            _startupItem.Checked = _config.StartWithWindows;
+            _startupItem.Click += delegate { SetStartWithWindows(!_config.StartWithWindows); };
 
             _updateItem = Theme.MenuItem("Check for updates", 0xE895);
             _updateItem.Click += delegate
@@ -87,17 +98,9 @@ namespace Zones
                 else Updater.CheckForUpdates(true);
             };
 
-            ToolStripMenuItem autoUpdate = Theme.MenuItem("Install updates automatically", 0);
-            autoUpdate.Checked = _config.AutoUpdate;
-            autoUpdate.Click += delegate
-            {
-                _config.AutoUpdate = !_config.AutoUpdate;
-                autoUpdate.Checked = _config.AutoUpdate;
-                _config.Save();
-                // Turned on, it takes up a release already found rather than
-                // waiting hours for the next quiet check.
-                if (_config.AutoUpdate) Updater.CheckForUpdates(false);
-            };
+            _autoUpdateItem = Theme.MenuItem("Install updates automatically", 0);
+            _autoUpdateItem.Checked = _config.AutoUpdate;
+            _autoUpdateItem.Click += delegate { SetAutoUpdate(!_config.AutoUpdate); };
 
             ToolStripMenuItem version = Theme.MenuItem("Zones " + Updater.CurrentText, 0xE946);
             version.Enabled = false;
@@ -106,9 +109,9 @@ namespace Zones
             quit.Click += delegate { Application.Exit(); };
 
             menu.Items.Add(snap);
-            menu.Items.Add(startup);
+            menu.Items.Add(_startupItem);
             menu.Items.Add(_updateItem);
-            menu.Items.Add(autoUpdate);
+            menu.Items.Add(_autoUpdateItem);
             menu.Items.Add(new ToolStripSeparator());
             menu.Items.Add(version);
             menu.Items.Add(quit);
@@ -119,6 +122,40 @@ namespace Zones
             snap.Font = new Font(snap.Font, FontStyle.Bold);
             RefreshUpdateItem();
             return menu;
+        }
+
+        /// <summary>
+        /// Starts Zones with Windows or stops it: the menu's item and the
+        /// settings window's switch both come here, so they do the same.
+        /// </summary>
+        public static void SetStartWithWindows(bool on)
+        {
+            if (_config == null) return;
+            _config.StartWithWindows = on;
+            SetStartup(on);
+            _config.Save();
+            SettingChanged();
+        }
+
+        /// <summary>Turns automatic updates on or off, from the menu or the settings window.</summary>
+        public static void SetAutoUpdate(bool on)
+        {
+            if (_config == null) return;
+            _config.AutoUpdate = on;
+            _config.Save();
+            SettingChanged();
+            // Turned on, it takes up a release already found rather than
+            // waiting hours for the next quiet check.
+            if (on) Updater.CheckForUpdates(false);
+        }
+
+        /// <summary>The checkmarks show the settings as they are now, and the settings window hears of it.</summary>
+        static void SettingChanged()
+        {
+            if (_startupItem != null) _startupItem.Checked = _config.StartWithWindows;
+            if (_autoUpdateItem != null) _autoUpdateItem.Checked = _config.AutoUpdate;
+            EventHandler handler = SettingsChanged;
+            if (handler != null) handler(null, EventArgs.Empty);
         }
 
         /// <summary>The update item says where the updater is: checking, installing, or what it found.</summary>
@@ -145,20 +182,42 @@ namespace Zones
             SetForegroundWindow(_menu.Handle);
         }
 
+        /// <summary>The Run key's value for this exe: its path, quoted.</summary>
+        static string StartupCommand()
+        {
+            return "\"" + Application.ExecutablePath + "\"";
+        }
+
         static void SetStartup(bool enable)
         {
             try
             {
-                using (RegistryKey key = Registry.CurrentUser.OpenSubKey(
-                    @"Software\Microsoft\Windows\CurrentVersion\Run", true))
+                using (RegistryKey key = Registry.CurrentUser.OpenSubKey(RunKey, true))
                 {
                     if (key == null) return;
 
-                    if (enable) key.SetValue("Zones", "\"" + Application.ExecutablePath + "\"");
+                    if (enable) key.SetValue("Zones", StartupCommand());
                     else key.DeleteValue("Zones", false);
                 }
             }
             catch { }
+        }
+
+        /// <summary>Whether the Run key starts this exe. Unreadable, it is taken to: nothing to repair then.</summary>
+        static bool StartupIsHere()
+        {
+            try
+            {
+                using (RegistryKey key = Registry.CurrentUser.OpenSubKey(RunKey))
+                {
+                    if (key == null) return false;
+                    return string.Equals(key.GetValue("Zones") as string, StartupCommand(), StringComparison.OrdinalIgnoreCase);
+                }
+            }
+            catch
+            {
+                return true;
+            }
         }
 
         [DllImport("user32.dll")]
