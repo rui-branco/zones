@@ -185,8 +185,10 @@ reason to keep it there.
 | The app, Windows | Wherever you put `zones.exe`; `install.ps1` uses `%LOCALAPPDATA%\Zones` |
 | The app, macOS | `/Applications/Zones.app`; `install.sh` uses `~/Applications` |
 
-Layouts are kept per display (the device name on Windows, the display's UUID
-on macOS) in the same JSON shape on both: a tree of runs and zones, each with
+Layouts are kept per monitor (its make, model and connector on Windows, the
+display's UUID on macOS), so they stay with the screen when Windows numbers its
+displays afresh after a reconnect or sleep. The same JSON shape on both: a tree
+of runs and zones, each with
 its share of the space. On Windows, a settings file that cannot be read is
 moved aside and the `.bak` used instead, so a crash mid-save never costs you
 your layouts.
