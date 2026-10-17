@@ -84,7 +84,7 @@ namespace Zones
             ContextMenuStrip menu = new ContextMenuStrip();
             Theme.StyleMenu(menu);
 
-            ToolStripMenuItem snap = Theme.MenuItem("Snap layouts...", 0xE80A);
+            ToolStripMenuItem snap = Theme.MenuItem("Settings...", 0xE713);
             snap.Click += delegate { SnapForm.ShowFor(_config); };
 
             _startupItem = Theme.MenuItem("Start with Windows", 0);

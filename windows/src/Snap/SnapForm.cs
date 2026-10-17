@@ -9,9 +9,10 @@ using System.Windows.Forms;
 namespace Zones
 {
     /// <summary>
-    /// The settings window: the displays and the snapping options down the
-    /// left, and on the right the layout of whichever display is picked,
-    /// chosen from the presets or drawn by hand.
+    /// The settings window: a menu down the left, and beside it the page
+    /// chosen from it. Layouts has the displays as tabs and the layout of
+    /// whichever is picked, chosen from the presets or drawn by hand, with
+    /// its sizes; Snapping, Shortcuts and General are cards of settings.
     ///
     /// A real window with a taskbar button, though Zones otherwise keeps to
     /// the notification area, because this is somewhere people stay a while
@@ -21,12 +22,12 @@ namespace Zones
     /// header is flat with the page instead of a system caption stacked on
     /// top. Every edit is saved as it is made; there is no OK button to forget.
     ///
-    /// All the static parts (the header, headings, cards and the hint) are
-    /// painted here; the parts that take input are child controls. Both are
-    /// placed from one scale and the window's size, so moving to a monitor
-    /// with another DPI, or dragging an edge, only needs
-    /// <see cref="Arrange"/> again. The left column keeps its width; the
-    /// right one, where the layout is drawn, takes the rest.
+    /// All the static parts (the header, titles, cards and their words) are
+    /// painted here; the parts that take input are child controls, and only
+    /// the open page's are shown. Both are placed from one scale and the
+    /// window's size, so moving to a monitor with another DPI, dragging an
+    /// edge or opening another page only needs <see cref="Arrange"/> again.
+    /// The menu keeps its width; the page takes the rest.
     /// </summary>
     public class SnapForm : Form
     {
@@ -57,68 +58,68 @@ namespace Zones
 
         const string Hint = "Click to split  ·  Drag a line to resize  ·  Right-click for more";
         const string CopiedText = "Copied to every display";
-        const string AutoUpdateText = "Auto-update";
-        const string StartupText = "Start with Windows";
 
         // In logical pixels: the size the window opens at, room permitting,
-        // and the smallest it can be made, below which the columns crowd (at
-        // 640, the snapping card still fits under two displays).
+        // and the smallest it can be made, below which the layout editor
+        // gets too small to draw in.
         const int OpenW = 1200;
         const int OpenH = 680;
         const int MinW = 1000;
         const int MinH = 640;
 
-        // In logical pixels: the header band the window is dragged by; a row
-        // of the snapping card tall enough for a title and one line of
-        // description beside the control, and one for a title alone.
+        // In logical pixels: the header band the window is dragged by; the
+        // menu's column, and where the page beside it starts.
         const int HeaderH = 40;
-        const int RowH = 56;
-        const int LineRowH = 40;
+        const int RailW = 232;
+        const int PageX = RailW + 24;
 
-        // The widest a shortcut box gets, in logical pixels: beside it, the
-        // row's title still needs room on the card.
-        const int ShortcutMaxW = 172;
+        // In logical pixels: where a settings page's first card starts, under
+        // its title; a card's row, tall enough for a title and one line of
+        // description beside the control; and the widest a card gets, past
+        // which its rows would only grow emptier.
+        const int CardsTop = 104;
+        const int RowH = 64;
+        const int MaxCardW = 1000;
 
         /// <summary>
-        /// The left column's width. Wide enough for "Previous zone" beside a
-        /// four-key shortcut (Ctrl Alt Shift Z), the longest row the card has.
+        /// The widest a shortcut box gets, in logical pixels: room for four
+        /// keys, and to grow into while one is being pressed in.
         /// </summary>
-        const int LeftW = 304;
-        /// <summary>Where the right column starts: the left one and a 24 gap either side.</summary>
-        const int RightX = 24 + LeftW + 24;
-        /// <summary>The card's inner right edge, where its controls end.</summary>
-        const int CardRight = 24 + LeftW - 16;
+        const int ShortcutMaxW = 240;
 
-        // The rows that need saying what they do have a description under the
-        // title, and are taller for it; the rest are the title alone. The
-        // last four are the shortcuts, in the order of the boxes.
-        static readonly string[] RowTitles =
-        {
-            "Snap windows", "Hold Shift to snap", "Spacing",
-            "Next zone", "Previous zone", "Next size", "Previous size"
-        };
-        static readonly string[] RowDescriptions =
-        {
-            "Drop dragged windows into zones",
-            "Off: every drag shows zones"
-        };
-        const int FirstShortcutRow = 3;
+        // The pages, in the menu's order.
+        const int PageLayouts = 0;
+        const int PageSnapping = 1;
+        const int PageShortcuts = 2;
+        const int PageGeneral = 3;
+        static readonly string[] PageNames = { "Layouts", "Snapping", "Shortcuts", "General" };
+        static readonly int[] PageGlyphs = { 0xF246, 0xE7C2, 0xE765, 0xE713 };
 
         /// <summary>The Hotkey slot each shortcut box sets, in the order of the boxes.</summary>
         static readonly int[] BoxSlots = { Hotkey.SlotZone, Hotkey.SlotZoneBack, Hotkey.SlotSize, Hotkey.SlotSizeBack };
+        static readonly string[] BoxTitles = { "Next zone", "Previous zone", "Next size", "Previous size" };
+        static readonly string[] BoxDescriptions =
+        {
+            "Moves the active window to its next zone",
+            "Moves it back to the zone before",
+            "Switches the display to its next size, its windows with it",
+            "Switches back to the size before"
+        };
 
         static SnapForm _open;
 
         readonly AppConfig _config;
         float _s = 1f;
+        int _page = PageLayouts;
         List<Display> _displays = new List<Display>();
         DisplayLayouts _layouts;    // the selected display's sizes, as the config has them
         ZoneLayout _layout;         // a copy of the active one, which the editor changes
         ZoneOverlay _overlay;   // made on the first flash: most visits never need it
-        Timer _applied;         // puts the subtitle back after "Copied to every display"
-        bool _copied;           // the subtitle says the layout was copied, for a moment
-        float _snappingY;       // the "Snapping" heading, in logical pixels: it sits under however many displays there are
+        Timer _applied;         // takes "Copied to every display" away again
+        bool _copied;           // the Layouts page says the layout was copied, for a moment
 
+        readonly NavList _nav = new NavList();
+        readonly FlatButton _railUpdateButton = new FlatButton();
         readonly ToggleSwitch _snapToggle = new ToggleSwitch();
         readonly ToggleSwitch _shiftToggle = new ToggleSwitch();
         readonly Stepper _spacing = new Stepper();
@@ -140,6 +141,24 @@ namespace Zones
         readonly ToggleSwitch _startupToggle = new ToggleSwitch();
         readonly CaptionButton _minimizeButton = new CaptionButton();
         readonly CaptionButton _closeButton = new CaptionButton();
+
+        /// <summary>One row of a settings card: what it is, what it does, and the control that sets it.</summary>
+        sealed class Row
+        {
+            public readonly string Title;
+            public readonly string Description;
+            public readonly Control Control;
+            /// <summary>Greyed out: the setting means nothing while snapping is off.</summary>
+            public readonly bool Faint;
+
+            public Row(string title, string description, Control control, bool faint)
+            {
+                Title = title;
+                Description = description;
+                Control = control;
+                Faint = faint;
+            }
+        }
 
         /// <summary>Opens the window, or brings back the one already open.</summary>
         public static void ShowFor(AppConfig config)
@@ -185,6 +204,9 @@ namespace Zones
             // style, and would add the sizing frame nobody sees to it.
             Size = new Size(Math.Min(R(OpenW), (int)(area.Width * 0.92)), Math.Min(R(OpenH), (int)(area.Height * 0.92)));
             Location = new Point(area.Left + (area.Width - Width) / 2, area.Top + (area.Height - Height) / 2);
+
+            for (int i = 0; i < PageNames.Length; i++) _nav.Add(PageNames[i], PageGlyphs[i]);
+            _nav.SelectedChanged += delegate { ShowPage(_nav.SelectedIndex); };
 
             _snapToggle.OnCard = true;
             _snapToggle.ShowLabel = false;
@@ -351,19 +373,26 @@ namespace Zones
                 LoadDisplay();
             };
 
-            // In the title bar, beside the version: a check asked for, which
-            // says what it found, or once a newer Zones is known, the accent
-            // button that installs it. The tray menu's item does the same.
+            // On the General page: a check asked for, which says what it
+            // found, or once a newer Zones is known, the accent button that
+            // installs it. The tray menu's item does the same, and so does
+            // the one at the foot of the menu, there on every page once an
+            // update is found.
+            _updateButton.OnCard = true;
             _updateButton.Click += delegate
             {
                 if (Updater.Available != null) Updater.StartUpdate();
                 else Updater.CheckForUpdates(true);
             };
+            _railUpdateButton.Accent = true;
+            _railUpdateButton.Glyph = 0xE896;
+            _railUpdateButton.Click += delegate { Updater.StartUpdate(); };
             Updater.UpdateStateChanged += OnUpdateStateChanged;
 
             // The two settings the tray menu also has, which go through it so
             // the menu's checkmarks and these switches never disagree. Set
             // from the menu, a switch is only following: already done.
+            _autoUpdateToggle.OnCard = true;
             _autoUpdateToggle.ShowLabel = false;
             _autoUpdateToggle.Checked = _config.AutoUpdate;
             _autoUpdateToggle.CheckedChanged += delegate
@@ -371,6 +400,7 @@ namespace Zones
                 if (_autoUpdateToggle.Checked != _config.AutoUpdate) Tray.SetAutoUpdate(_autoUpdateToggle.Checked);
             };
 
+            _startupToggle.OnCard = true;
             _startupToggle.ShowLabel = false;
             _startupToggle.Checked = _config.StartWithWindows;
             _startupToggle.CheckedChanged += delegate
@@ -384,7 +414,8 @@ namespace Zones
             _showButton.Click += delegate { Flash(1500); };
 
             // The actions wanted now and then, behind one button so the
-            // header is the page's title and the one it is mostly used for.
+            // Layouts page leads with the displays and the one it is mostly
+            // used for.
             Theme.StyleMenu(_moreMenu);
             _allItem = Theme.MenuItem("Use on all displays", 0xE8A9);
             _allItem.Click += delegate { UseOnAll(); };
@@ -436,9 +467,15 @@ namespace Zones
             Activated += delegate { LoadDisplay(); };
             Hotkey.Pressed += OnHotkey;
 
-            // In tab order, the page before the title bar's settings; the
+            // In tab order, the menu, then the pages in its order; the
             // caption buttons are not tab stops.
+            Controls.Add(_nav);
             Controls.Add(_displayPicker);
+            Controls.Add(_showButton);
+            Controls.Add(_moreButton);
+            Controls.Add(_layoutPicker);
+            Controls.Add(_sizeStrip);
+            Controls.Add(_editor);
             Controls.Add(_snapToggle);
             Controls.Add(_shiftToggle);
             Controls.Add(_spacing);
@@ -446,14 +483,10 @@ namespace Zones
             Controls.Add(_zoneBackBox);
             Controls.Add(_sizeBox);
             Controls.Add(_sizeBackBox);
-            Controls.Add(_showButton);
-            Controls.Add(_moreButton);
-            Controls.Add(_layoutPicker);
-            Controls.Add(_sizeStrip);
-            Controls.Add(_editor);
-            Controls.Add(_updateButton);
-            Controls.Add(_autoUpdateToggle);
             Controls.Add(_startupToggle);
+            Controls.Add(_autoUpdateToggle);
+            Controls.Add(_updateButton);
+            Controls.Add(_railUpdateButton);
             Controls.Add(_minimizeButton);
             Controls.Add(_closeButton);
 
@@ -461,7 +494,7 @@ namespace Zones
             UpdateEnabled();
             ShowUpdate();
             LoadDisplay();
-            Arrange();
+            ShowPage(PageLayouts);
         }
 
         int R(float px)
@@ -498,18 +531,80 @@ namespace Zones
             return (int)Math.Round(_config.SnapSpacing * d.Scale);
         }
 
-        /// <summary>How tall row <paramref name="i"/> of the snapping card is, in logical pixels.</summary>
-        static int RowHeight(int i)
+        // ---------- pages ----------
+
+        /// <summary>
+        /// A settings page's cards, top to bottom, each a list of rows. The
+        /// Layouts page has none: it is the editor's.
+        /// </summary>
+        List<Row[]> Cards(int page)
         {
-            return i < RowDescriptions.Length ? RowH : LineRowH;
+            List<Row[]> cards = new List<Row[]>();
+            bool on = _config.SnapEnabled;
+            if (page == PageSnapping)
+            {
+                cards.Add(new Row[]
+                {
+                    new Row("Snap windows", "Drop a dragged window into a zone", _snapToggle, false),
+                    new Row("Hold Shift to snap", "Zones show only while Shift is held. Off, every drag shows them", _shiftToggle, !on),
+                    new Row("Spacing", "The gap around each zone", _spacing, !on)
+                });
+            }
+            else if (page == PageShortcuts)
+            {
+                Row[] rows = new Row[_boxes.Length];
+                for (int i = 0; i < _boxes.Length; i++) rows[i] = new Row(BoxTitles[i], BoxDescriptions[i], _boxes[i], !on);
+                cards.Add(rows);
+            }
+            else if (page == PageGeneral)
+            {
+                cards.Add(new Row[]
+                {
+                    new Row("Start with Windows", "Opens Zones in the notification area when you sign in", _startupToggle, false),
+                    new Row("Auto-update", "Installs new versions by itself while Zones is idle", _autoUpdateToggle, false)
+                });
+                cards.Add(new Row[] { new Row("Version " + Updater.CurrentText, UpdateStatus(), _updateButton, false) });
+            }
+            return cards;
         }
 
-        /// <summary>Where row <paramref name="i"/> starts, in logical pixels down from the card's top; past the last, the card's height.</summary>
-        static int RowTop(int i)
+        /// <summary>The child controls that belong to a page, shown only while it is open.</summary>
+        List<Control> ControlsOf(int page)
         {
-            int top = 0;
-            for (int j = 0; j < i; j++) top += RowHeight(j);
-            return top;
+            List<Control> controls = new List<Control>();
+            if (page == PageLayouts)
+            {
+                controls.AddRange(new Control[] { _displayPicker, _showButton, _moreButton, _layoutPicker, _sizeStrip, _editor });
+                return controls;
+            }
+            foreach (Row[] card in Cards(page))
+            {
+                foreach (Row row in card) controls.Add(row.Control);
+            }
+            return controls;
+        }
+
+        /// <summary>Opens a page: its controls appear, every other page's go, and it is laid out and painted.</summary>
+        void ShowPage(int page)
+        {
+            _page = page;
+            for (int p = 0; p < PageNames.Length; p++)
+            {
+                foreach (Control c in ControlsOf(p)) c.Visible = p == page;
+            }
+            if (_nav.SelectedIndex != page) _nav.SelectedIndex = page;
+            Arrange();
+            Invalidate();
+        }
+
+        /// <summary>What the updater is doing, or found, in words: the version row's description.</summary>
+        static string UpdateStatus()
+        {
+            ReleaseInfo update = Updater.Available;
+            if (Updater.Updating && update != null) return "Installing Zones " + Updater.VersionText(update.Version) + "…";
+            if (Updater.Checking) return "Checking for updates…";
+            if (update != null) return "Zones " + Updater.VersionText(update.Version) + " is available";
+            return "Zones checks for updates every few hours";
         }
 
         // ---------- behaviour ----------
@@ -579,7 +674,7 @@ namespace Zones
             _config.Save();
 
             // Nothing on screen changes and the menu it came from has closed,
-            // so the subtitle says it worked, for a moment.
+            // so the page says it worked, for a moment.
             _copied = true;
             Invalidate();
 
@@ -641,9 +736,10 @@ namespace Zones
         }
 
         /// <summary>
-        /// The title bar's update button follows the updater, as the tray
-        /// menu's item does: a check to ask for, the check under way, the
-        /// newer Zones it found in the accent, and that being installed.
+        /// The update buttons follow the updater, as the tray menu's item
+        /// does. On the General page: a check to ask for, the check under
+        /// way, the newer Zones it found in the accent, and that being
+        /// installed. At the foot of the menu, only the last two.
         /// </summary>
         void ShowUpdate()
         {
@@ -656,8 +752,14 @@ namespace Zones
             else if (Updater.Checking) _updateButton.Text = "Checking…";
             else if (update != null) _updateButton.Text = "Update to " + Updater.VersionText(update.Version);
             else _updateButton.Text = "Check for updates";
-            Arrange();      // the button is as wide as its words,
-            Invalidate();   // and the version is painted beside it
+
+            _railUpdateButton.Visible = found || Updater.Updating;
+            _railUpdateButton.Enabled = !Updater.Updating;
+            _railUpdateButton.Text = Updater.Updating ? "Updating…"
+                : update != null ? "Update to " + Updater.VersionText(update.Version) : "";
+
+            Arrange();      // the buttons are as wide as their words,
+            Invalidate();   // and the version row says what is going on
         }
 
         void OnUpdateStateChanged(object sender, EventArgs e)
@@ -686,6 +788,8 @@ namespace Zones
 
         void ApplyScale()
         {
+            _nav.Scale = _s;
+            _railUpdateButton.Scale = _s;
             _snapToggle.Scale = _s;
             _shiftToggle.Scale = _s;
             _spacing.Scale = _s;
@@ -703,87 +807,106 @@ namespace Zones
             _closeButton.Scale = _s;
         }
 
+        /// <summary>The width of a settings card, in logical pixels: the page's, up to the widest a card gets.</summary>
+        float CardWidth()
+        {
+            return Math.Min(ClientSize.Width / _s - 24 - PageX, MaxCardW);
+        }
+
         /// <summary>
         /// Places every child control, in logical pixels, at the current scale
-        /// and for the window's current size: the left column is fixed, the
-        /// right one takes whatever width and height are left.
+        /// and for the window's current size: the menu is fixed, the page
+        /// takes whatever width and height are left. Every page is laid out,
+        /// not only the open one, so opening another only needs showing it.
         /// </summary>
         void Arrange()
         {
             float width = ClientSize.Width / _s;
-            float right = width - 24;                       // the right column's edge
+            float right = width - 24;                       // the page's right edge
             float bottom = ClientSize.Height / _s - 24;     // the bottom margin
-            float column = right - RightX;                     // the right column's width
+            float column = right - PageX;                   // the page's width
 
             // The caption buttons in the window's top-right corner, a pixel
             // down so the edge above them still resizes the window.
             _minimizeButton.Bounds = Logical(width - 92, 1, 46, HeaderH - 1);
             _closeButton.Bounds = Logical(width - 46, 1, 46, HeaderH - 1);
 
-            // The title bar's settings, right to left from the caption buttons
-            // and centred in the band: each switch with its name painted 8 to
-            // its left, 16 between the two, then the update button, with the
-            // version painted 12 to the left of that (see PaintHeader). The
-            // names are measured as the buttons measure theirs.
-            Font small = Theme.Font(12 * _s);
-            int switchTop = R((HeaderH - 32) / 2f);
-            _startupToggle.Bounds = new Rectangle(_minimizeButton.Left - R(12) - R(40), switchTop, R(40), R(32));
-            int startupName = TextRenderer.MeasureText(StartupText, small).Width;
-            _autoUpdateToggle.Bounds = new Rectangle(_startupToggle.Left - R(8) - startupName - R(16) - R(40), switchTop, R(40), R(32));
-            int autoUpdateName = TextRenderer.MeasureText(AutoUpdateText, small).Width;
-            int updateW = _updateButton.PreferredWidth();
-            _updateButton.Bounds = new Rectangle(_autoUpdateToggle.Left - R(8) - autoUpdateName - R(16) - updateW, R((HeaderH - 28) / 2f), updateW, R(28));
+            // The menu under the title bar, and at its foot, over the version
+            // (see PaintRail), the update once one is found.
+            Rectangle nav = Logical(12, 52, RailW - 24, 0);
+            nav.Height = _nav.PreferredHeight();
+            _nav.Bounds = nav;
+            int update = Math.Min(_railUpdateButton.PreferredWidth(), R(RailW - 48));
+            _railUpdateButton.Bounds = new Rectangle(R(24), R(bottom - 16 - 12 - 32), update, R(32));
 
-            // The left column: the displays as tall as their rows, but never
-            // so tall that the snapping card under them ends lower than 20
-            // above the bottom margin, the room its footnote needs (two
-            // headings of 28 above the card).
-            Rectangle list = Logical(24, 84, LeftW, 0);
-            list.Height = Math.Min(_displayPicker.PreferredHeight(), R(bottom - 20 - RowTop(RowTitles.Length) - 2 * 28) - list.Top);
-            _displayPicker.Bounds = list;
-            _snappingY = list.Bottom / _s + 28;
+            // ----- Layouts -----
 
-            // Each control right-aligned 16 in from the card's edge and
-            // centred in its row.
-            float cardTop = _snappingY + 28;
-            _snapToggle.Bounds = Logical(CardRight - 40, cardTop + RowTop(0) + (RowHeight(0) - 32) / 2f, 40, 32);
-            _shiftToggle.Bounds = Logical(CardRight - 40, cardTop + RowTop(1) + (RowHeight(1) - 32) / 2f, 40, 32);
-            _spacing.Bounds = Logical(CardRight - 112, cardTop + RowTop(2) + (RowHeight(2) - 32) / 2f, 112, 32);
-
-            // The shortcuts as wide as their keys, up to a maximum that also
-            // holds the box while it sizes itself to the keys held as one is
-            // recorded.
-            for (int i = 0; i < _boxes.Length; i++)
-            {
-                int row = FirstShortcutRow + i;
-                Rectangle box = Logical(CardRight, cardTop + RowTop(row) + (RowHeight(row) - 32) / 2f, 0, 32);
-                box.Width = Math.Min(_boxes[i].PreferredWidth(), R(ShortcutMaxW));
-                box.X -= box.Width;
-                _boxes[i].MaximumSize = new Size(R(ShortcutMaxW), 0);
-                _boxes[i].Bounds = box;
-            }
-
-            // The page's buttons, level with its title, right to left from the
-            // column's edge: "More" square with only its glyph, then "Show on
-            // screen" 8 to its left.
-            _moreButton.Bounds = Logical(right - 32, 56, 32, 32);
+            // The page's buttons, level with the display tabs, right to left
+            // from its edge: "More" square with only its glyph, then "Show on
+            // screen" 8 to its left. The tabs have the rest of the line.
+            _moreButton.Bounds = Logical(right - 32, 60, 32, 32);
             int show = _showButton.PreferredWidth();
-            _showButton.Bounds = new Rectangle(_moreButton.Left - R(8) - show, R(56), show, R(88) - R(56));
+            _showButton.Bounds = new Rectangle(_moreButton.Left - R(8) - show, R(60), show, R(32));
+            Rectangle tabs = Logical(PageX, 48, 0, 0);
+            tabs.Width = Math.Max(0, Math.Min(_displayPicker.PreferredWidth(), _showButton.Left - R(24) - tabs.Left));
+            tabs.Height = _displayPicker.PreferredHeight();
+            _displayPicker.Bounds = tabs;
 
-            // The tiles grow with the column, up to 120 each; past that the
-            // row stops widening and keeps to the column's left edge.
+            // The tiles grow with the page, up to 120 each; past that the
+            // row stops widening and keeps to the page's left edge.
             int n = ZoneLayout.PresetNames.Length;
-            _layoutPicker.Bounds = Logical(RightX, 156, Math.Min(column, n * 120 + (n - 1) * 8), 88);
+            _layoutPicker.Bounds = Logical(PageX, 156, Math.Min(column, n * 120 + (n - 1) * 8), 88);
 
             // The display's sizes, on the "Zones" heading's line, out to the
-            // column's edge: as wide as however many sizes there are.
+            // page's edge: as wide as however many sizes there are.
             int strip = _sizeStrip.PreferredWidth();
             _sizeStrip.Bounds = Rectangle.FromLTRB(R(right) - strip, R(256), R(right), R(256 + 32));
 
             // Inside the card the form paints for it, from 300 to the bottom
             // margin: 12 in from its sides and top, the hint in the 26 left
             // under it.
-            _editor.Bounds = Logical(RightX + 12, 312, column - 24, bottom - 26 - 312);
+            _editor.Bounds = Logical(PageX + 12, 312, column - 24, bottom - 26 - 312);
+
+            // ----- the settings pages -----
+
+            // Each row's control right-aligned 16 in from its card's edge and
+            // centred in the row; the cards 16 apart.
+            float cardRight = PageX + CardWidth() - 16;
+            for (int page = PageSnapping; page < PageNames.Length; page++)
+            {
+                float top = CardsTop;
+                foreach (Row[] card in Cards(page))
+                {
+                    for (int i = 0; i < card.Length; i++)
+                    {
+                        Control c = card[i].Control;
+                        float rowTop = top + i * RowH;
+                        Rectangle r = Logical(cardRight, rowTop + (RowH - 32) / 2f, 0, 32);
+                        r.Width = ControlWidth(c);
+                        r.X -= r.Width;
+                        c.Bounds = r;
+                    }
+                    top += card.Length * RowH + 16;
+                }
+            }
+        }
+
+        /// <summary>How wide a row's control is, in device pixels.</summary>
+        int ControlWidth(Control c)
+        {
+            if (c == _spacing) return R(112);
+            ShortcutBox box = c as ShortcutBox;
+            if (box != null)
+            {
+                // As wide as its keys, up to a maximum that also holds the
+                // box while it sizes itself to the keys held as one is
+                // recorded.
+                box.MaximumSize = new Size(R(ShortcutMaxW), 0);
+                return Math.Min(box.PreferredWidth(), R(ShortcutMaxW));
+            }
+            FlatButton button = c as FlatButton;
+            if (button != null) return button.PreferredWidth();
+            return R(40);       // a switch
         }
 
         // ---------- painting ----------
@@ -795,26 +918,63 @@ namespace Zones
             g.SmoothingMode = SmoothingMode.AntiAlias;
             g.TextRenderingHint = TextRenderingHint.ClearTypeGridFit;
 
-            PaintHeader(g);
+            PaintRail(g);
+            if (_page == PageLayouts) PaintLayouts(g);
+            else PaintSettings(g);
+        }
 
+        /// <summary>
+        /// The menu's column: the Zones mark and the window's name in the
+        /// title bar, on the window's own colour with no line under it, and
+        /// at the foot the version running. The menu itself, the update
+        /// button over the version and the caption buttons are controls.
+        /// </summary>
+        void PaintRail(Graphics g)
+        {
+            Logo.Draw(g, new RectangleF(R(14), R(12), R(16), R(16)));
+            using (SolidBrush b = new SolidBrush(Theme.Text))
+            using (StringFormat f = new StringFormat())
+            {
+                f.LineAlignment = StringAlignment.Center;
+                f.FormatFlags = StringFormatFlags.NoWrap;
+                g.DrawString(Text, Theme.Font(12 * _s), b, new RectangleF(R(40), 0, R(RailW) - R(40), R(HeaderH)), f);
+            }
+
+            float bottom = ClientSize.Height / _s - 24;
+            DrawLabel(g, "Version " + Updater.CurrentText, Theme.Font(12 * _s), Theme.TextDim, R(24), R(bottom - 16));
+        }
+
+        /// <summary>
+        /// The Layouts page: the headings over the presets and the sizes, the
+        /// zone editor's card with the hint under it, and for a moment after
+        /// "Use on all displays", word that it was done. Which display is
+        /// picked, and which layout and size it has, are the lit tab, tile
+        /// and size already.
+        /// </summary>
+        void PaintLayouts(Graphics g)
+        {
             Font heading = Theme.Strong(14 * _s);
-
-            DrawLabel(g, "Displays", heading, Theme.Text, R(24), R(56));
-            DrawLabel(g, "Snapping", heading, Theme.Text, R(24), R(_snappingY));
-            PaintOptions(g);
-
-            PaintPageTitle(g);
-
-            DrawLabel(g, "Layouts", heading, Theme.Text, R(RightX), R(128));
-
-            DrawLabel(g, "Zones", heading, Theme.Text, R(RightX), R(264));
-
-            // The zone editor's card, the right column's width and down to the
-            // bottom margin: the editor itself sits inside it, and the hint
-            // under the editor, where the clicks it describes happen.
             float right = ClientSize.Width / _s - 24;
             float bottom = ClientSize.Height / _s - 24;
-            Rectangle card = Logical(RightX, 300, right - RightX, bottom - 300);
+
+            DrawLabel(g, "Presets", heading, Theme.Text, R(PageX), R(128));
+            DrawLabel(g, "Zones", heading, Theme.Text, R(PageX), R(264));
+
+            if (_copied)
+            {
+                using (SolidBrush b = new SolidBrush(Theme.Accent))
+                using (StringFormat f = new StringFormat())
+                {
+                    f.Alignment = StringAlignment.Far;
+                    f.FormatFlags = StringFormatFlags.NoWrap;
+                    g.DrawString(CopiedText, Theme.Font(13 * _s), b, RectangleF.FromLTRB(R(PageX), R(129), R(right), R(152)), f);
+                }
+            }
+
+            // The zone editor's card, the page's width and down to the
+            // bottom margin: the editor itself sits inside it, and the hint
+            // under the editor, where the clicks it describes happen.
+            Rectangle card = Logical(PageX, 300, right - PageX, bottom - 300);
             DrawCard(g, card);
             using (SolidBrush b = new SolidBrush(Theme.TextDim))
             using (StringFormat f = new StringFormat())
@@ -827,152 +987,98 @@ namespace Zones
         }
 
         /// <summary>
-        /// The title bar: the Zones mark and the window's name on the window's
-        /// own colour, with no line under it, and at the right the version
-        /// and the names of the two switches. The caption buttons, the update
-        /// button and the switches are controls.
+        /// A settings page: its title, its cards with the lines between rows
+        /// and each row's words beside its control, and under the last card
+        /// whatever the page has to add.
         /// </summary>
-        void PaintHeader(Graphics g)
+        void PaintSettings(Graphics g)
         {
-            Logo.Draw(g, new RectangleF(R(14), R(12), R(16), R(16)));
-            using (SolidBrush b = new SolidBrush(Theme.Text))
-            using (StringFormat f = new StringFormat())
-            {
-                f.LineAlignment = StringAlignment.Center;
-                f.FormatFlags = StringFormatFlags.NoWrap;
-                g.DrawString(Text, Theme.Font(12 * _s), b, new RectangleF(R(40), 0, _minimizeButton.Left - R(40), R(HeaderH)), f);
-            }
-
-            DrawHeaderLabel(g, "Version " + Updater.CurrentText, Theme.TextDim, _updateButton.Left - R(12));
-            DrawHeaderLabel(g, AutoUpdateText, Theme.Text, _autoUpdateToggle.Left - R(8));
-            DrawHeaderLabel(g, StartupText, Theme.Text, _startupToggle.Left - R(8));
-        }
-
-        /// <summary>
-        /// Words in the title bar, centred in it and ending at <paramref name="right"/>:
-        /// right-aligned, so they end where the layout put the gap however
-        /// GDI+ measures them.
-        /// </summary>
-        void DrawHeaderLabel(Graphics g, string text, Color color, int right)
-        {
-            using (SolidBrush b = new SolidBrush(color))
-            using (StringFormat f = new StringFormat())
-            {
-                f.Alignment = StringAlignment.Far;
-                f.LineAlignment = StringAlignment.Center;
-                f.FormatFlags = StringFormatFlags.NoWrap;
-                g.DrawString(text, Theme.Font(12 * _s), b, RectangleF.FromLTRB(R(40), 0, right, R(HeaderH)), f);
-            }
-        }
-
-        /// <summary>
-        /// The selected display's name, and under it its size and whether it
-        /// is the primary: what the right column is about. Which layout and
-        /// which size it has are the selected tile and the lit size already.
-        /// For a moment after "Use on all displays", the line under the name
-        /// says it was done instead.
-        /// </summary>
-        void PaintPageTitle(Graphics g)
-        {
-            Display d = _displayPicker.Selected;
-            if (d == null) return;
-
             // GDI+ pads text by a fraction of its size, so at 24px the title
-            // would start visibly right of the 13px line under it. Pulled back
+            // would start visibly right of the cards under it. Pulled back
             // by the difference, the two share a left edge.
-            DrawLabel(g, d.Number > 0 ? "Display " + d.Number : "Display", Theme.Strong(24 * _s), Theme.Text, R(RightX) - 3 * _s, R(50));
+            DrawLabel(g, PageNames[_page], Theme.Strong(24 * _s), Theme.Text, R(PageX) - 3 * _s, R(50));
 
-            if (_copied)
-            {
-                DrawLabel(g, CopiedText, Theme.Font(13 * _s), Theme.Accent, R(RightX), R(86));
-                return;
-            }
-            string detail = d.Bounds.Width + " × " + d.Bounds.Height + (d.Primary ? "  ·  Primary" : "");
-            DrawLabel(g, detail, Theme.Font(13 * _s), Theme.TextDim, R(RightX), R(86));
-        }
-
-        /// <summary>
-        /// The snapping card: its plate, the lines between rows, and each
-        /// row's words; under it, only when there is something wrong to say,
-        /// which shortcuts are taken.
-        /// </summary>
-        void PaintOptions(Graphics g)
-        {
-            float cardTop = _snappingY + 28;
-            Rectangle card = Logical(24, cardTop, LeftW, RowTop(RowTitles.Length));
-            DrawCard(g, card);
-
-            Control[] controls = { _snapToggle, _shiftToggle, _spacing, _zoneBox, _zoneBackBox, _sizeBox, _sizeBackBox };
             Font title = Theme.Font(14 * _s);
             Font description = Theme.Font(12 * _s);
             float titleH = title.GetHeight(g);
             float descriptionH = description.GetHeight(g);
+            float cardW = CardWidth();
 
-            for (int i = 0; i < controls.Length; i++)
+            float top = CardsTop;
+            Rectangle last = Rectangle.Empty;
+            foreach (Row[] rows in Cards(_page))
             {
-                float top = cardTop + RowTop(i);
-                if (i > 0)
+                Rectangle card = Logical(PageX, top, cardW, rows.Length * RowH);
+                DrawCard(g, card);
+                for (int i = 0; i < rows.Length; i++)
                 {
-                    using (SolidBrush b = new SolidBrush(Theme.Divider))
-                        g.FillRectangle(b, R(24 + 16), R(top), R(CardRight) - R(24 + 16), 1);
-                }
+                    Row row = rows[i];
+                    float rowTop = top + i * RowH;
+                    if (i > 0)
+                    {
+                        using (SolidBrush b = new SolidBrush(Theme.Divider))
+                            g.FillRectangle(b, R(PageX + 16), R(rowTop), R(PageX + cardW - 16) - R(PageX + 16), 1);
+                    }
 
-                // Under a switched-off "Snap windows", the rows that depend on it fade.
-                bool faint = i > 0 && !_config.SnapEnabled;
-                float x = card.Left + R(16);
-
-                if (i >= RowDescriptions.Length)
-                {
-                    // The title alone, centred in its row.
-                    using (SolidBrush b = new SolidBrush(faint ? Theme.TextFaint : Theme.Text))
+                    // The title and its description as one block, centred in
+                    // the row, each one line, cut short rather than wrapped
+                    // under the control.
+                    float x = card.Left + R(16);
+                    float width = Math.Max(0, row.Control.Left - R(16) - x);
+                    float y = R(rowTop) + (R(RowH) - titleH - descriptionH) / 2;
                     using (StringFormat f = new StringFormat())
                     {
-                        f.LineAlignment = StringAlignment.Center;
                         f.FormatFlags = StringFormatFlags.NoWrap;
-                        g.DrawString(RowTitles[i], title, b, new RectangleF(x, R(top), controls[i].Left - x, R(top + RowHeight(i)) - R(top)), f);
+                        f.Trimming = StringTrimming.EllipsisCharacter;
+                        using (SolidBrush b = new SolidBrush(row.Faint ? Theme.TextFaint : Theme.Text))
+                            g.DrawString(row.Title, title, b, new RectangleF(x, y, width, titleH), f);
+                        using (SolidBrush b = new SolidBrush(row.Faint ? Theme.TextFaint : Theme.TextDim))
+                            g.DrawString(row.Description, description, b, new RectangleF(x, y + titleH, width, descriptionH), f);
                     }
-                    continue;
                 }
-
-                // The title and its description as one block, centred in the row.
-                float y = R(top) + (R(RowHeight(i)) - titleH - descriptionH) / 2;
-                DrawLabel(g, RowTitles[i], title, faint ? Theme.TextFaint : Theme.Text, x, y);
-                using (SolidBrush b = new SolidBrush(faint ? Theme.TextFaint : Theme.TextDim))
-                using (StringFormat f = new StringFormat())
-                {
-                    // One line, cut short rather than wrapped under the control.
-                    // The box stops only 4 short of it: DrawString pads the
-                    // words inside their box, so they still end a good 12 clear,
-                    // where a box 12 short cut "into zones" to an ellipsis.
-                    f.FormatFlags = StringFormatFlags.NoWrap;
-                    f.Trimming = StringTrimming.EllipsisCharacter;
-                    float width = controls[i].Left - R(4) - x;
-                    g.DrawString(RowDescriptions[i], description, b, new RectangleF(x, y + titleH, width, descriptionH), f);
-                }
+                last = card;
+                top += rows.Length * RowH + 16;
             }
 
-            // Windows turned a shortcut down because another program has it,
-            // so it does nothing until it is changed: the card says which,
-            // under it. Not while a new one is being pressed in, when the old
-            // one is let go anyway.
+            Color color;
+            string note = Footnote(out color);
+            if (note == null || last.IsEmpty) return;
+            using (SolidBrush b = new SolidBrush(color))
+            using (StringFormat f = new StringFormat())
+            {
+                f.FormatFlags = StringFormatFlags.NoWrap;
+                f.Trimming = StringTrimming.EllipsisCharacter;
+                g.DrawString(note, description, b, new RectangleF(last.Left, last.Bottom + R(12), last.Width, descriptionH), f);
+            }
+        }
+
+        /// <summary>
+        /// The line under the open page's cards, if it has one. On Shortcuts,
+        /// first that one is taken: Windows turned it down because another
+        /// program has it, so it does nothing until it is changed. Not while a
+        /// new one is being pressed in, when the old one is let go anyway.
+        /// </summary>
+        string Footnote(out Color color)
+        {
+            color = Theme.TextDim;
+            if (_page == PageSnapping) return "While zones are showing, scroll the mouse wheel to switch between the display's sizes.";
+            if (_page != PageShortcuts) return null;
+
             string taken = null;
             int count = 0;
             for (int i = 0; i < _boxes.Length; i++)
             {
                 if (_boxes[i].Recording || !Hotkey.IsFailed(BoxSlots[i])) continue;
-                taken = RowTitles[FirstShortcutRow + i];
+                taken = BoxTitles[i];
                 count++;
             }
-            if (count == 0) return;
-
-            using (SolidBrush b = new SolidBrush(Theme.Danger))
-            using (StringFormat f = new StringFormat())
+            if (count > 0)
             {
-                f.FormatFlags = StringFormatFlags.NoWrap;
-                f.Trimming = StringTrimming.EllipsisCharacter;
-                string note = count == 1 ? taken + " shortcut is already in use" : count + " shortcuts are already in use";
-                g.DrawString(note, description, b, new RectangleF(card.Left, card.Bottom + R(8), card.Width, descriptionH), f);
+                color = Theme.Danger;
+                return count == 1 ? taken + " shortcut is already in use" : count + " shortcuts are already in use";
             }
+            if (!_config.SnapEnabled) return "Snapping is off: these do nothing until it is on again.";
+            return "Click a shortcut, then press the keys for it. Backspace clears it.";
         }
 
         /// <summary>A card raised off the window: rounded, filled, with a hairline edge.</summary>
