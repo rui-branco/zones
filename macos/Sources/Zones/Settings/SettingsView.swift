@@ -130,7 +130,8 @@ struct SettingsView: View {
     }
 
     /// The display's name, and level with it the page's actions: the one
-    /// used most as a button, the rest in a menu.
+    /// used most as a button, the rest in a menu; before them, an update
+    /// when there is one.
     private func titleRow(_ display: Display) -> some View {
         HStack(alignment: .top, spacing: 16) {
             Text(display.name)
@@ -139,6 +140,7 @@ struct SettingsView: View {
                 .lineLimit(1)
             Spacer(minLength: 0)
             HStack(spacing: 8) {
+                updateButton
                 Button {
                     model.showOnScreen()
                 } label: {
@@ -162,6 +164,31 @@ struct SettingsView: View {
             }
             .fixedSize()
             .padding(.top, 4)
+        }
+    }
+
+    /// The update the updater found, in the accent colour: the one thing on
+    /// the page waiting on the user. Greyed out, saying so, while it installs.
+    @ViewBuilder
+    private var updateButton: some View {
+        switch model.update {
+        case .available(let release):
+            Button {
+                model.installUpdate()
+            } label: {
+                Label("Update to \(release.version)", systemImage: "arrow.down.circle")
+            }
+            .buttonStyle(.borderedProminent)
+            .controlSize(.regular)
+        case .downloading, .installing:
+            Button {} label: {
+                Label("Updating…", systemImage: "arrow.down.circle")
+            }
+            .buttonStyle(.borderedProminent)
+            .controlSize(.regular)
+            .disabled(true)
+        case .idle, .checking, .failed:
+            EmptyView()
         }
     }
 

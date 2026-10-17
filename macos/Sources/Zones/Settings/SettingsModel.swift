@@ -35,6 +35,9 @@ final class SettingsModel: NSObject, ObservableObject {
     /// as nothing else on screen changes to show it.
     @Published private(set) var copied = false
 
+    /// What the updater is doing: the title row offers an update it found.
+    @Published private(set) var update = Updater.shared.state
+
     /// Set while this window's own change is being saved, so the
     /// config-changed notification that save posts is not taken for someone
     /// else's change and reloaded.
@@ -56,6 +59,8 @@ final class SettingsModel: NSObject, ObservableObject {
         NotificationCenter.default.addObserver(
             self, selector: #selector(screensChanged(_:)), name: NSApplication.didChangeScreenParametersNotification,
             object: nil)
+        NotificationCenter.default.addObserver(
+            self, selector: #selector(updateChanged(_:)), name: .zonesUpdateChanged, object: nil)
     }
 
     /// The window closed: nothing more to follow.
@@ -282,6 +287,16 @@ final class SettingsModel: NSObject, ObservableObject {
 
     @objc private func copiedDone() {
         copied = false
+    }
+
+    // MARK: - Updates
+
+    @objc private func updateChanged(_ note: Notification) {
+        update = Updater.shared.state
+    }
+
+    func installUpdate() {
+        Updater.shared.install()
     }
 
     /// Back to the display's default, by forgetting what was chosen for it.

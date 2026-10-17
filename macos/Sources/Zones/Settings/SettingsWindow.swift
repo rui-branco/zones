@@ -4,7 +4,8 @@ import SwiftUI
 /// The settings window.
 ///
 /// CONTRACT: the menu bar item and the app delegate call show(); main.swift
-/// calls renderSnapshot when launched with `--render-settings <path>`.
+/// calls renderSnapshot when launched with `--render-settings <path>`; the
+/// updater asks isOpen and isRecordingShortcut before installing by itself.
 /// Main thread only, like the rest of the app.
 enum SettingsWindow {
     /// Opens the window, or brings back the one already open, and makes
@@ -12,6 +13,20 @@ enum SettingsWindow {
     static func show() {
         MainActor.assumeIsolated {
             SettingsWindowController.show()
+        }
+    }
+
+    /// The window is open.
+    static var isOpen: Bool {
+        MainActor.assumeIsolated {
+            SettingsWindowController.isOpen
+        }
+    }
+
+    /// A shortcut is being recorded in the window.
+    static var isRecordingShortcut: Bool {
+        MainActor.assumeIsolated {
+            SettingsWindowController.isRecording
         }
     }
 
@@ -38,6 +53,14 @@ private final class SettingsWindowController: NSObject, NSWindowDelegate {
 
     private let window: NSWindow
     private let model: SettingsModel
+
+    static var isOpen: Bool {
+        open != nil
+    }
+
+    static var isRecording: Bool {
+        open?.model.recording != nil
+    }
 
     static func show() {
         if let open {

@@ -43,6 +43,10 @@ public final class Config {
     /// Whether to launch at login.
     public var startAtLogin: Bool = false
 
+    /// Whether an update found by the regular check installs by itself, once
+    /// Zones is not in use. Off, it is only offered.
+    public var autoUpdate: Bool = true
+
     public init() {}
 
     /// ~/Library/Application Support/Zones/config.json
@@ -81,6 +85,7 @@ public final class Config {
         cfg.zoneBackShortcut = shortcut(root["ZoneBackShortcut"], or: cfg.zoneBackShortcut)
         cfg.sizeBackShortcut = shortcut(root["SizeBackShortcut"], or: cfg.sizeBackShortcut)
         cfg.startAtLogin = JSON.bool(root["StartAtLogin"]) ?? cfg.startAtLogin
+        cfg.autoUpdate = JSON.bool(root["AutoUpdate"]) ?? cfg.autoUpdate
 
         if let stored = root["SnapLayouts"] as? [String: Any] {
             for (key, value) in stored {
@@ -105,6 +110,7 @@ public final class Config {
         root["ZoneBackShortcut"] = Config.json(zoneBackShortcut)
         root["SizeBackShortcut"] = Config.json(sizeBackShortcut)
         root["StartAtLogin"] = startAtLogin
+        root["AutoUpdate"] = autoUpdate
 
         // JSONSerialization raises an Objective-C exception, not a Swift
         // error, on anything it cannot write (a NaN, say): check first.

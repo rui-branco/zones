@@ -1,4 +1,5 @@
 import AppKit
+import ZonesCore
 
 /// Zones' one place in the menu bar: it has no Dock icon and no main
 /// window, so this menu is how the settings are found and how it is quit.
@@ -33,6 +34,18 @@ enum StatusItem {
         actions.loginItem = login
 
         menu.addItem(.separator())
+
+        let update = NSMenuItem(title: "Check for Updates…", action: nil, keyEquivalent: "")
+        update.target = actions
+        menu.addItem(update)
+        actions.updateItem = update
+        actions.showUpdate()
+
+        let autoUpdate = NSMenuItem(title: "Install Updates Automatically", action: #selector(MenuActions.toggleAutoUpdate),
+                                    keyEquivalent: "")
+        autoUpdate.target = actions
+        menu.addItem(autoUpdate)
+        actions.autoUpdateItem = autoUpdate
 
         // No action, so the menu greys it out: a label, not a command.
         let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "dev"
@@ -73,9 +86,58 @@ enum StatusItem {
 }
 
 /// The menu's target, and its delegate for ticking Start at Login as
-/// macOS has it each time the menu opens.
+/// macOS has it each time the menu opens, and Install Updates Automatically
+/// as the config has it. Keeps the update item saying what the updater is
+/// doing.
 private final class MenuActions: NSObject, NSMenuDelegate {
     weak var loginItem: NSMenuItem?
+    weak var updateItem: NSMenuItem?
+    weak var autoUpdateItem: NSMenuItem?
+
+    override init() {
+        super.init()
+        NotificationCenter.default.addObserver(
+            self, selector: #selector(updateChanged(_:)), name: .zonesUpdateChanged, object: nil)
+    }
+
+    /// The update item as the updater's state has it: a command while there
+    /// is something to do, greyed out (no action) while it is busy.
+    func showUpdate() {
+        guard let item = updateItem else { return }
+        switch Updater.shared.state {
+        case .idle, .failed:
+            item.title = "Check for Updates…"
+            item.action = #selector(checkForUpdates)
+        case .checking:
+            item.title = "Checking for Updates…"
+            item.action = nil
+        case .available(let release):
+            item.title = "Update to Zones \(release.version)…"
+            item.action = #selector(offerUpdate)
+        case .downloading, .installing:
+            item.title = "Updating…"
+            item.action = nil
+        }
+    }
+
+    @objc private func updateChanged(_ notification: Notification) {
+        showUpdate()
+    }
+
+    @objc func checkForUpdates() {
+        Updater.shared.check(manual: true)
+    }
+
+    @objc func offerUpdate() {
+        Updater.shared.offer()
+    }
+
+    @objc func toggleAutoUpdate() {
+        let config = AppState.shared.config
+        config.autoUpdate.toggle()
+        AppState.shared.save()
+        Updater.shared.autoUpdateChanged()
+    }
 
     @objc func showSettings() {
         SettingsWindow.show()
@@ -87,5 +149,6 @@ private final class MenuActions: NSObject, NSMenuDelegate {
 
     func menuNeedsUpdate(_ menu: NSMenu) {
         loginItem?.state = LoginItem.isEnabled ? .on : .off
+        autoUpdateItem?.state = AppState.shared.config.autoUpdate ? .on : .off
     }
 }

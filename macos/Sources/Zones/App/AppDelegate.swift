@@ -9,13 +9,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// the one already running instead of a second menu bar item.
     private static let showSettingsNotification = Notification.Name("com.ruibranco.zones.showSettings")
 
+    /// Opened with --background (after an automatic update): nothing shows
+    /// at launch, not even on a first run.
+    private let background = CommandLine.arguments.contains(Updater.backgroundArgument)
+
     func applicationDidFinishLaunching(_ notification: Notification) {
         if let other = otherInstance() {
-            // Delivered at once: macOS holds distributed notifications back
-            // from an app that is not active, which the other copy is not.
-            DistributedNotificationCenter.default().postNotificationName(
-                AppDelegate.showSettingsNotification, object: nil, userInfo: nil, deliverImmediately: true)
-            other.activate(options: [])
+            if !background {
+                // Delivered at once: macOS holds distributed notifications back
+                // from an app that is not active, which the other copy is not.
+                DistributedNotificationCenter.default().postNotificationName(
+                    AppDelegate.showSettingsNotification, object: nil, userInfo: nil, deliverImmediately: true)
+                other.activate(options: [])
+            }
             NSApp.terminate(nil)
             return
         }
@@ -31,10 +37,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         StatusItem.install()
         LoginItem.start()
         Engine.start()
+        Updater.shared.start()
 
         if firstRun {
             AppState.shared.save()
-            SettingsWindow.show()
+            if !background { SettingsWindow.show() }
         }
     }
 

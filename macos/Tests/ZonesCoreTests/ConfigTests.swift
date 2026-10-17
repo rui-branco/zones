@@ -39,6 +39,7 @@ final class ConfigTests: XCTestCase {
         XCTAssertEqual(cfg.zoneBackShortcut, Shortcut(keyCode: 6, modifiers: 0x1000 | 0x800 | 0x200))
         XCTAssertEqual(cfg.sizeBackShortcut, Shortcut(keyCode: 7, modifiers: 0x1000 | 0x800 | 0x200))
         XCTAssertFalse(cfg.startAtLogin)
+        XCTAssertTrue(cfg.autoUpdate)
         XCTAssertTrue(Config.defaultURL.path.hasSuffix("/Library/Application Support/Zones/config.json"))
     }
 
@@ -48,6 +49,7 @@ final class ConfigTests: XCTestCase {
         cfg.holdShift = false
         cfg.spacing = 12
         cfg.startAtLogin = true
+        cfg.autoUpdate = false
         cfg.zoneShortcut = nil
         cfg.sizeShortcut = Shortcut(keyCode: 0x28, modifiers: 0x100 | 0x200)   // ⌘⇧K
         cfg.layouts["37D8832A-2D66-02CA-B9F7-8F30A301B230"] = DisplayLayouts(
@@ -63,6 +65,7 @@ final class ConfigTests: XCTestCase {
         XCTAssertFalse(back.holdShift)
         XCTAssertEqual(back.spacing, 12)
         XCTAssertTrue(back.startAtLogin)
+        XCTAssertFalse(back.autoUpdate)
         XCTAssertNil(back.zoneShortcut)
         XCTAssertEqual(back.sizeShortcut, Shortcut(keyCode: 0x28, modifiers: 0x100 | 0x200))
         XCTAssertEqual(back.layouts.count, 2)
@@ -79,11 +82,11 @@ final class ConfigTests: XCTestCase {
         let root = try XCTUnwrap(try JSONSerialization.jsonObject(with: Data(text.utf8)) as? [String: Any])
         XCTAssertEqual(Set(root.keys), [
             "SnapEnabled", "SnapHoldShift", "SnapSpacing", "SnapLayouts",
-            "ZoneShortcut", "SizeShortcut", "ZoneBackShortcut", "SizeBackShortcut", "StartAtLogin",
+            "ZoneShortcut", "SizeShortcut", "ZoneBackShortcut", "SizeBackShortcut", "StartAtLogin", "AutoUpdate",
         ])
         XCTAssertTrue(root["ZoneShortcut"] is NSNull)
-        let keys = ["SizeBackShortcut", "SizeShortcut", "SnapEnabled", "SnapHoldShift", "SnapLayouts", "SnapSpacing",
-                    "StartAtLogin", "ZoneBackShortcut", "ZoneShortcut"]
+        let keys = ["AutoUpdate", "SizeBackShortcut", "SizeShortcut", "SnapEnabled", "SnapHoldShift", "SnapLayouts",
+                    "SnapSpacing", "StartAtLogin", "ZoneBackShortcut", "ZoneShortcut"]
         let offsets = keys.map { text.range(of: "\"\($0)\"")!.lowerBound }
         XCTAssertEqual(offsets, offsets.sorted())
     }
@@ -101,6 +104,7 @@ final class ConfigTests: XCTestCase {
             XCTAssertTrue(cfg.layouts.isEmpty, text)
             XCTAssertEqual(cfg.zoneShortcut, Config().zoneShortcut, text)
             XCTAssertFalse(cfg.startAtLogin, text)
+            XCTAssertTrue(cfg.autoUpdate, text)
         }
     }
 
@@ -120,6 +124,7 @@ final class ConfigTests: XCTestCase {
             "SnapEnabled": 0,
             "SnapHoldShift": false,
             "SnapSpacing": "wide",
+            "AutoUpdate": 0,
             "ZoneShortcut": {"keyCode": "Z"},
             "SizeShortcut": {"keyCode": 3, "modifiers": 4352},
             "SnapLayouts": {
@@ -133,6 +138,7 @@ final class ConfigTests: XCTestCase {
         XCTAssertTrue(cfg.snapEnabled)
         XCTAssertFalse(cfg.holdShift)
         XCTAssertEqual(cfg.spacing, 8)
+        XCTAssertTrue(cfg.autoUpdate)
         XCTAssertEqual(cfg.zoneShortcut, Config().zoneShortcut)
         XCTAssertEqual(cfg.sizeShortcut, Shortcut(keyCode: 3, modifiers: 0x1000 | 0x100))
         XCTAssertEqual(Set(cfg.layouts.keys), ["GOOD", "BARE"])
