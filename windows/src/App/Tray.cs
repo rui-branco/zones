@@ -1,6 +1,5 @@
 using System;
 using System.Drawing;
-using System.Reflection;
 using System.Runtime.InteropServices;
 using System.Windows.Forms;
 using Microsoft.Win32;
@@ -11,18 +10,20 @@ namespace Zones
     /// Zones' icon in the notification area, and its menu: the one thing on
     /// screen that says Zones is running, between drags. A click opens the
     /// settings, as the bold first item of the menu says; the rest is what
-    /// every resident app needs, starting with Windows and quitting.
+    /// every resident app needs, starting with Windows, updating and quitting.
     /// </summary>
     public static class Tray
     {
         static AppConfig _config;
         static NotifyIcon _icon;
         static ContextMenuStrip _menu;
+        static ToolStripMenuItem _updateItem;
 
         public static void Start(AppConfig config)
         {
             _config = config;
             _menu = BuildMenu();
+            Updater.UpdateStateChanged += delegate { RefreshUpdateItem(); };
 
             _icon = new NotifyIcon();
             _icon.Text = "Zones";
@@ -79,8 +80,26 @@ namespace Zones
                 _config.Save();
             };
 
-            Version v = Assembly.GetExecutingAssembly().GetName().Version;
-            ToolStripMenuItem version = Theme.MenuItem("Zones " + v.Major + "." + v.Minor + "." + v.Build, 0xE946);
+            _updateItem = Theme.MenuItem("Check for updates", 0xE895);
+            _updateItem.Click += delegate
+            {
+                if (Updater.Available != null) Updater.StartUpdate();
+                else Updater.CheckForUpdates(true);
+            };
+
+            ToolStripMenuItem autoUpdate = Theme.MenuItem("Install updates automatically", 0);
+            autoUpdate.Checked = _config.AutoUpdate;
+            autoUpdate.Click += delegate
+            {
+                _config.AutoUpdate = !_config.AutoUpdate;
+                autoUpdate.Checked = _config.AutoUpdate;
+                _config.Save();
+                // Turned on, it takes up a release already found rather than
+                // waiting hours for the next quiet check.
+                if (_config.AutoUpdate) Updater.CheckForUpdates(false);
+            };
+
+            ToolStripMenuItem version = Theme.MenuItem("Zones " + Updater.CurrentText, 0xE946);
             version.Enabled = false;
 
             ToolStripMenuItem quit = Theme.MenuItem("Quit", 0xE7E8);
@@ -88,6 +107,8 @@ namespace Zones
 
             menu.Items.Add(snap);
             menu.Items.Add(startup);
+            menu.Items.Add(_updateItem);
+            menu.Items.Add(autoUpdate);
             menu.Items.Add(new ToolStripSeparator());
             menu.Items.Add(version);
             menu.Items.Add(quit);
@@ -96,7 +117,22 @@ namespace Zones
             // the icon does. Set once it is on the menu, so it is the menu's
             // own font made bold rather than the stock one.
             snap.Font = new Font(snap.Font, FontStyle.Bold);
+            RefreshUpdateItem();
             return menu;
+        }
+
+        /// <summary>The update item says where the updater is: checking, installing, or what it found.</summary>
+        static void RefreshUpdateItem()
+        {
+            if (_updateItem == null) return;
+
+            ReleaseInfo update = Updater.Available;
+            if (Updater.Updating) _updateItem.Text = "Updating...";
+            else if (Updater.Checking) _updateItem.Text = "Checking for updates...";
+            else if (update != null) _updateItem.Text = "Update to Zones " + Updater.VersionText(update.Version);
+            else _updateItem.Text = "Check for updates";
+
+            _updateItem.Enabled = !Updater.Checking && !Updater.Updating;
         }
 
         static void ShowMenu()

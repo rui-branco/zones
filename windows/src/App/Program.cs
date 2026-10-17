@@ -11,6 +11,12 @@ namespace Zones
         static EventWaitHandle _showSettings;   // a second launch's way of asking for the settings window
         static AppConfig _config;
         static Form _owner;          // hidden window that owns cross-thread invokes
+        static System.Windows.Forms.Timer _updateTimer;   // the quiet update checks
+
+        // The first quiet check waits for startup to settle; after that, every
+        // few hours, because Zones stays running for weeks between restarts.
+        const int FirstUpdateCheckMs = 10 * 1000;
+        const int UpdateCheckEveryMs = 6 * 60 * 60 * 1000;
 
         [STAThread]
         static void Main()
@@ -55,7 +61,11 @@ namespace Zones
             // so the running one opens its settings and this one quits. It is
             // this launch Windows lets take the foreground; it hands that on,
             // or the settings window could open behind whatever is in front.
-            if (!ClaimSingleInstance())
+            // An update relaunches us while the build it replaced is still
+            // shutting down, so that one start is allowed to wait for the
+            // mutex instead of giving up on the spot.
+            bool afterUpdate = HasArg("--after-update");
+            if (!ClaimSingleInstance(afterUpdate ? 10000 : 0))
             {
                 AllowSetForegroundWindow(ASFW_ANY);
                 _showSettings.Set();
@@ -78,6 +88,9 @@ namespace Zones
                 Exception ex = e.ExceptionObject as Exception;
                 if (ex != null) LogError(ex);
             };
+
+            // An update leaves the previous build renamed beside this one.
+            Updater.CleanupOldBuild();
 
             // Asked before loading, which reads the file but never writes it.
             bool firstRun = !AppConfig.Exists;
@@ -105,6 +118,18 @@ namespace Zones
                 SnapForm.ShowFor(_config);
                 _config.Save();
             }
+            else if (HasArg("--show-settings"))
+            {
+                // An update installed while the settings were open: back as they were.
+                SnapForm.ShowFor(_config);
+            }
+
+            // Quietly look for a newer release. Nothing pops up: with automatic
+            // updates on, it installs itself when Zones is idle; otherwise the
+            // answer only shows up as the wording of the menu's update item,
+            // and as a button in the settings window.
+            Updater.Init(_owner, _config);
+            StartUpdateChecks();
 
             Application.Run();
 
@@ -140,12 +165,38 @@ namespace Zones
             listener.Start();
         }
 
-        static bool ClaimSingleInstance()
+        /// <summary>
+        /// A quiet check a little after starting, then one every few hours. A
+        /// Forms timer, so each check starts on the UI thread like one from the menu.
+        /// </summary>
+        static void StartUpdateChecks()
+        {
+            _updateTimer = new System.Windows.Forms.Timer();
+            _updateTimer.Interval = FirstUpdateCheckMs;
+            _updateTimer.Tick += delegate
+            {
+                _updateTimer.Interval = UpdateCheckEveryMs;
+                Updater.CheckForUpdates(false);
+            };
+            _updateTimer.Start();
+        }
+
+        static bool HasArg(string name)
+        {
+            string[] args = Environment.GetCommandLineArgs();
+            for (int i = 1; i < args.Length; i++)
+            {
+                if (string.Equals(args[i], name, StringComparison.OrdinalIgnoreCase)) return true;
+            }
+            return false;
+        }
+
+        static bool ClaimSingleInstance(int waitMs)
         {
             _mutex = new Mutex(false, "Zones_SingleInstance_Mutex");
             try
             {
-                if (_mutex.WaitOne(0, false)) return true;
+                if (_mutex.WaitOne(waitMs, false)) return true;
             }
             catch (AbandonedMutexException)
             {
@@ -158,7 +209,11 @@ namespace Zones
             return false;
         }
 
-        static void ReleaseSingleInstance()
+        /// <summary>
+        /// Lets go of the single-instance mutex. An update calls this before it
+        /// launches the new build, so the two never fight over the name.
+        /// </summary>
+        public static void ReleaseSingleInstance()
         {
             if (_mutex == null) return;
             try { _mutex.ReleaseMutex(); }

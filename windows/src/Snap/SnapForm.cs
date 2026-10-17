@@ -124,6 +124,7 @@ namespace Zones
         readonly DisplayPicker _displayPicker = new DisplayPicker();
         readonly LayoutPicker _layoutPicker = new LayoutPicker();
         readonly SizeStrip _sizeStrip = new SizeStrip();
+        readonly FlatButton _updateButton = new FlatButton();
         readonly FlatButton _showButton = new FlatButton();
         readonly FlatButton _moreButton = new FlatButton();
         readonly ContextMenuStrip _moreMenu = new ContextMenuStrip();
@@ -339,6 +340,13 @@ namespace Zones
                 LoadDisplay();
             };
 
+            // A newer Zones, once the updater knows of one: the page's accent
+            // button, in the header where it is seen, not only in the menu.
+            _updateButton.Accent = true;
+            _updateButton.Glyph = 0xE896;
+            _updateButton.Click += delegate { Updater.StartUpdate(); };
+            Updater.UpdateStateChanged += OnUpdateStateChanged;
+
             _showButton.Text = "Show on screen";
             _showButton.Glyph = 0xE7F4;
             _showButton.Click += delegate { Flash(1500); };
@@ -396,6 +404,7 @@ namespace Zones
             Controls.Add(_zoneBackBox);
             Controls.Add(_sizeBox);
             Controls.Add(_sizeBackBox);
+            Controls.Add(_updateButton);
             Controls.Add(_showButton);
             Controls.Add(_moreButton);
             Controls.Add(_layoutPicker);
@@ -406,6 +415,7 @@ namespace Zones
 
             ApplyScale();
             UpdateEnabled();
+            ShowUpdate();
             LoadDisplay();
             Arrange();
         }
@@ -586,6 +596,25 @@ namespace Zones
             Invalidate();
         }
 
+        /// <summary>
+        /// The header's update button follows the updater: shown only while a
+        /// newer Zones is known, and saying so until it is being installed.
+        /// </summary>
+        void ShowUpdate()
+        {
+            ReleaseInfo update = Updater.Available;
+            _updateButton.Visible = update != null;
+            _updateButton.Enabled = !Updater.Updating;
+            if (Updater.Updating) _updateButton.Text = "Updating...";
+            else if (update != null) _updateButton.Text = "Update to " + Updater.VersionText(update.Version);
+            Arrange();      // the button is as wide as its words, and there or not
+        }
+
+        void OnUpdateStateChanged(object sender, EventArgs e)
+        {
+            if (!IsDisposed) ShowUpdate();
+        }
+
         /// <summary>A display came or went: list them again, staying on the same one if it is still there.</summary>
         void ReloadDisplays()
         {
@@ -606,6 +635,7 @@ namespace Zones
             _displayPicker.Scale = _s;
             _layoutPicker.Scale = _s;
             _sizeStrip.Scale = _s;
+            _updateButton.Scale = _s;
             _showButton.Scale = _s;
             _moreButton.Scale = _s;
             _editor.Scale = _s;
@@ -661,10 +691,13 @@ namespace Zones
 
             // The page's buttons, level with its title, right to left from the
             // column's edge: "More" square with only its glyph, then "Show on
-            // screen" 8 to its left.
+            // screen" 8 to its left, and the update, when there is one, 8 to
+            // the left of that.
             _moreButton.Bounds = Logical(right - 32, 56, 32, 32);
             int show = _showButton.PreferredWidth();
             _showButton.Bounds = new Rectangle(_moreButton.Left - R(8) - show, R(56), show, R(88) - R(56));
+            int update = _updateButton.PreferredWidth();
+            _updateButton.Bounds = new Rectangle(_showButton.Left - R(8) - update, R(56), update, R(88) - R(56));
 
             // The tiles grow with the column, up to 120 each; past that the
             // row stops widening and keeps to the column's left edge.
@@ -1005,6 +1038,7 @@ namespace Zones
         {
             base.OnFormClosed(e);
             Hotkey.Pressed -= OnHotkey;
+            Updater.UpdateStateChanged -= OnUpdateStateChanged;
             if (_open == this) _open = null;
             // Closed mid-recording, by Zones quitting say: the shortcuts were
             // let go for the recording, so they are taken back.

@@ -164,6 +164,12 @@ namespace Zones
             return zone && size && zoneBack && sizeBack;
         }
 
+        /// <summary>A window is being dragged, or zones are on screen: no moment for an update to restart Zones.</summary>
+        public static bool Busy
+        {
+            get { return _hwnd != IntPtr.Zero || (_overlay != null && _overlay.Showing); }
+        }
+
         /// <summary>
         /// Makes size <paramref name="index"/> the active one on
         /// <paramref name="display"/>, moves the windows snapped there into the

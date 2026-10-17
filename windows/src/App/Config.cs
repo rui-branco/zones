@@ -10,6 +10,13 @@ namespace Zones
         /// <summary>Whether to launch at Windows startup.</summary>
         public bool StartWithWindows { get; set; }
 
+        /// <summary>
+        /// Whether a newer release found by the quiet checks is downloaded and
+        /// installed by itself, the next time Zones is idle. Off, the tray menu
+        /// and the settings window only offer it.
+        /// </summary>
+        public bool AutoUpdate { get; set; }
+
         /// <summary>Whether dragging a window offers snap zones at all.</summary>
         public bool SnapEnabled { get; set; }
         /// <summary>
@@ -49,6 +56,7 @@ namespace Zones
         public AppConfig()
         {
             StartWithWindows = false;
+            AutoUpdate = true;
             SnapEnabled = true;
             SnapHoldShift = true;
             SnapSpacing = 8;
@@ -161,6 +169,7 @@ namespace Zones
                 AppConfig cfg = new AppConfig();
 
                 cfg.StartWithWindows = Json.Bool(root, "StartWithWindows", false);
+                cfg.AutoUpdate = Json.Bool(root, "AutoUpdate", true);
                 cfg.SnapEnabled = Json.Bool(root, "SnapEnabled", true);
                 cfg.SnapHoldShift = Json.Bool(root, "SnapHoldShift", true);
                 cfg.SnapSpacing = Json.Int(root, "SnapSpacing", 8);
@@ -204,6 +213,7 @@ namespace Zones
 
                 Dictionary<string, object> root = new Dictionary<string, object>();
                 root["StartWithWindows"] = StartWithWindows;
+                root["AutoUpdate"] = AutoUpdate;
                 root["SnapEnabled"] = SnapEnabled;
                 root["SnapHoldShift"] = SnapHoldShift;
                 root["SnapSpacing"] = SnapSpacing;
