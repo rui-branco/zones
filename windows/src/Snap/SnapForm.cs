@@ -39,7 +39,10 @@ namespace Zones
         const int WM_DISPLAYCHANGE = 0x007E;
         const int WM_NCCALCSIZE = 0x0083;
         const int WM_NCHITTEST = 0x0084;
+        const int WM_NCACTIVATE = 0x0086;
         const int WM_NCLBUTTONDBLCLK = 0x00A3;
+        const int WM_NCUAHDRAWCAPTION = 0x00AE;
+        const int WM_NCUAHDRAWFRAME = 0x00AF;
         const int WM_DPICHANGED = 0x02E0;
         const int WM_THEMECHANGED = 0x031A;
         const int HTCLIENT = 1;
@@ -1176,6 +1179,24 @@ namespace Zones
             if (m.Msg == WM_NCLBUTTONDBLCLK)
             {
                 return;     // the header is a title bar, but there is nothing to maximize to
+            }
+            if (m.Msg == WM_NCUAHDRAWCAPTION || m.Msg == WM_NCUAHDRAWFRAME)
+            {
+                // Undocumented, and sent now and then to have DefWindowProc
+                // draw the standard caption and frame. This window draws its
+                // own, and theirs would land on top of it.
+                m.Result = IntPtr.Zero;
+                return;
+            }
+            if (m.Msg == WM_NCACTIVATE)
+            {
+                // Going to the background or coming back, DefWindowProc
+                // repaints the caption to show which. With none of its own to
+                // repaint, the window got the old Windows caption painted
+                // across its header instead, a "?" button and all, until
+                // something made it paint again. An lParam of -1 keeps the
+                // change of state and leaves out the painting.
+                m.LParam = new IntPtr(-1);
             }
             if (m.Msg == WM_NCCALCSIZE && m.WParam != IntPtr.Zero)
             {
