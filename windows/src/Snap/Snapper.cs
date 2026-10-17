@@ -47,6 +47,12 @@ namespace Zones
         /// </summary>
         const int Reach = 12;
 
+        /// <summary>
+        /// How far off a zone's edges a window can be, in logical pixels, and
+        /// the zone shortcut still take it as in that zone (see Cycle).
+        /// </summary>
+        const int NearlyInZone = 16;
+
         static AppConfig _config;
         static WinEventDelegate _proc;      // held so the delegate outlives the hook
         static Timer _timer;
@@ -725,8 +731,11 @@ namespace Zones
                 // Which zone it is in now. The one Zones last put it in, while
                 // it is still exactly where it was left there - the only way to
                 // tell for a window too big to fill its zone. Otherwise the one
-                // its frame matches, to a pixel or two of rounding: put there
-                // across several by a drag, or moved away and back.
+                // its frame is on, give or take a few pixels: put there across
+                // several by a drag, moved away and back, or placed by hand or
+                // by the app just about there. Snapping it into a zone it is
+                // already that close to would barely move it, and the press
+                // would look as if it did nothing; it goes on to the next.
                 int current = -1;
                 SnapRecord record;
                 if (_snapped.TryGetValue(hwnd, out record)
@@ -737,11 +746,12 @@ namespace Zones
                     && WindowRect(hwnd) == record.Rect)
                     current = record.Indices[0];
 
+                int near = Math.Max(2, (int)Math.Round(NearlyInZone * d.Scale));
                 for (int i = 0; current < 0 && i < n; i++)
                 {
                     Rectangle z = zones[i];
-                    if (Math.Abs(frame.Left - z.Left) <= 2 && Math.Abs(frame.Top - z.Top) <= 2
-                        && Math.Abs(frame.Right - z.Right) <= 2 && Math.Abs(frame.Bottom - z.Bottom) <= 2)
+                    if (Math.Abs(frame.Left - z.Left) <= near && Math.Abs(frame.Top - z.Top) <= near
+                        && Math.Abs(frame.Right - z.Right) <= near && Math.Abs(frame.Bottom - z.Bottom) <= near)
                         current = i;
                 }
 
