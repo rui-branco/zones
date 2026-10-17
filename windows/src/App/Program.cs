@@ -9,6 +9,7 @@ namespace Zones
     {
         static Mutex _mutex;
         static EventWaitHandle _showSettings;   // a second launch's way of asking for the settings window
+        static RegisteredWaitHandle _showSettingsWait;  // held so the wait on it lasts as long as Zones
         static AppConfig _config;
         static Form _owner;          // hidden window that owns cross-thread invokes
         static System.Windows.Forms.Timer _updateTimer;   // the quiet update checks
@@ -131,6 +132,9 @@ namespace Zones
             Updater.Init(_owner, _config);
             StartUpdateChecks();
 
+            // Started: what that took is garbage, and Zones waits in the tray.
+            Memory.TrimAfter(3000);
+
             Application.Run();
 
             // Cleanup: no ghost icon left in the notification area.
@@ -139,30 +143,25 @@ namespace Zones
         }
 
         /// <summary>
-        /// Waits, on a thread of its own, for another launch to ask for the
-        /// settings window, and opens it on the UI thread each time. In the
-        /// background, so it never keeps the process alive past a Quit.
+        /// Waits for another launch to ask for the settings window, and opens
+        /// it on the UI thread each time. A wait registered with the thread
+        /// pool rather than a thread of its own: the pool's wait thread
+        /// watches the event among others, so no thread sits parked on it for
+        /// weeks, and none keeps the process alive past a Quit.
         /// </summary>
         static void ListenForSecondLaunch()
         {
-            Thread listener = new Thread(delegate()
+            _showSettingsWait = ThreadPool.RegisterWaitForSingleObject(_showSettings, delegate(object state, bool timedOut)
             {
-                while (true)
+                try
                 {
-                    _showSettings.WaitOne();
-                    try
-                    {
-                        _owner.BeginInvoke((MethodInvoker)delegate { SnapForm.ShowFor(_config); });
-                    }
-                    catch (Exception ex)
-                    {
-                        LogError(ex);
-                    }
+                    _owner.BeginInvoke((MethodInvoker)delegate { SnapForm.ShowFor(_config); });
                 }
-            });
-            listener.IsBackground = true;
-            listener.Name = "Zones second launch";
-            listener.Start();
+                catch (Exception ex)
+                {
+                    LogError(ex);
+                }
+            }, null, -1, false);
         }
 
         /// <summary>
