@@ -1,0 +1,10 @@
+bin/
+obj/
+*.user
+*.suo
+Thumbs.db
+desktop.ini
+.DS_Store
+.build/
+*.xcodeproj/
+macos/dist/
