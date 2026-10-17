@@ -8,3 +8,4 @@ desktop.ini
 .build/
 *.xcodeproj/
 macos/dist/
+dist/
