@@ -62,7 +62,8 @@ function Capture([scriptblock]$command) {
 # Runs native commands judged by their exit codes (see Check), not by whether
 # they wrote to stderr. rcodesign and gh print progress there; under "Stop",
 # PowerShell 5.1 turns that into a terminating error whenever the script's
-# output is redirected. Dot-sourced, so what the block assigns stays set.
+# output is redirected. Its output is the block's, so assign the call, not
+# inside the block: an assignment in there is lost with the function's scope.
 function Native([scriptblock]$block) {
   $prev = $ErrorActionPreference
   $ErrorActionPreference = "Continue"
@@ -166,7 +167,7 @@ try {
   Check "package-release.sh on $MacHost"
 
   # Read from the zip itself, so what is checked is what gets uploaded.
-  Native { $macVersion = ssh $MacHost "cd $remoteDir && rm -rf check && unzip -q macos/dist/Zones-mac.zip Zones.app/Contents/Info.plist -d check && /usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' check/Zones.app/Contents/Info.plist" }
+  $macVersion = Native { ssh $MacHost "cd $remoteDir && rm -rf check && unzip -q macos/dist/Zones-mac.zip Zones.app/Contents/Info.plist -d check && /usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' check/Zones.app/Contents/Info.plist" }
   Check "Reading the version inside Zones-mac.zip"
   $macVersion = "$macVersion".Trim()
   if ($macVersion -ne $version) { throw "Zones.app in Zones-mac.zip says it is version '$macVersion', not $version" }
@@ -208,7 +209,7 @@ try {
   Check "gh release create"
 
   Step "Checking the release"
-  Native { $json = gh release view $tag -R $Repo --json assets }
+  $json = Native { gh release view $tag -R $Repo --json assets }
   Check "gh release view"
   $assets = (($json -join "`n") | ConvertFrom-Json).assets
   if (@($assets).Count -ne 3) { throw "$tag has $(@($assets).Count) assets, not 3" }
