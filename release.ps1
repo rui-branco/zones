@@ -59,6 +59,20 @@ function Capture([scriptblock]$command) {
   return ($out -join "`n")
 }
 
+# Runs native commands judged by their exit codes (see Check), not by whether
+# they wrote to stderr. rcodesign and gh print progress there; under "Stop",
+# PowerShell 5.1 turns that into a terminating error whenever the script's
+# output is redirected. Dot-sourced, so what the block assigns stays set.
+function Native([scriptblock]$block) {
+  $prev = $ErrorActionPreference
+  $ErrorActionPreference = "Continue"
+  try {
+    . $block
+  } finally {
+    $ErrorActionPreference = $prev
+  }
+}
+
 if ($AllowDirty -and -not $DryRun) { throw "-AllowDirty is only for -DryRun: a release is made from a clean tree at origin/main" }
 
 Push-Location $root
@@ -141,24 +155,24 @@ try {
 
   Step "Building for macOS on $MacHost"
   Info "copying VERSION and macos\ to ~/$remoteDir"
-  ssh $MacHost "rm -rf $remoteDir && mkdir -p $remoteDir"
+  Native { ssh $MacHost "rm -rf $remoteDir && mkdir -p $remoteDir" }
   Check "ssh $MacHost (preparing ~/$remoteDir)"
   # Through Git Bash: PowerShell does not pipe binary output between programs intact.
-  & $bash -c "tar czf - --exclude=.build VERSION macos | ssh $MacHost 'cd $remoteDir && tar xzf -'"
+  Native { & $bash -c "tar czf - --exclude=.build VERSION macos | ssh $MacHost 'cd $remoteDir && tar xzf -'" }
   Check "Copying the source to $MacHost"
 
   Info "packaging"
-  ssh $MacHost "cd $remoteDir && bash macos/scripts/package-release.sh"
+  Native { ssh $MacHost "cd $remoteDir && bash macos/scripts/package-release.sh" }
   Check "package-release.sh on $MacHost"
 
   # Read from the zip itself, so what is checked is what gets uploaded.
-  $macVersion = ssh $MacHost "cd $remoteDir && rm -rf check && unzip -q macos/dist/Zones-mac.zip Zones.app/Contents/Info.plist -d check && /usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' check/Zones.app/Contents/Info.plist"
+  Native { $macVersion = ssh $MacHost "cd $remoteDir && rm -rf check && unzip -q macos/dist/Zones-mac.zip Zones.app/Contents/Info.plist -d check && /usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' check/Zones.app/Contents/Info.plist" }
   Check "Reading the version inside Zones-mac.zip"
   $macVersion = "$macVersion".Trim()
   if ($macVersion -ne $version) { throw "Zones.app in Zones-mac.zip says it is version '$macVersion', not $version" }
 
   # A relative destination: scp would read C: in an absolute one as a host.
-  scp "${MacHost}:$remoteDir/macos/dist/Zones-mac.zip" "dist/Zones-mac.zip"
+  Native { scp "${MacHost}:$remoteDir/macos/dist/Zones-mac.zip" "dist/Zones-mac.zip" }
   Check "scp Zones-mac.zip from $MacHost"
   $zip = Join-Path $dist "Zones-mac.zip"
   if (-not (Test-Path $zip -PathType Leaf)) { throw "Zones-mac.zip was not copied to $zip" }
@@ -190,11 +204,11 @@ try {
 
   # The tag on the commit that was built, not on whatever main is by now.
   Step "Publishing $tag on $Repo"
-  gh release create $tag -R $Repo --target $head --title "Zones $version" --notes-file $NotesFile $exe $zip $sums
+  Native { gh release create $tag -R $Repo --target $head --title "Zones $version" --notes-file $NotesFile $exe $zip $sums }
   Check "gh release create"
 
   Step "Checking the release"
-  $json = gh release view $tag -R $Repo --json assets
+  Native { $json = gh release view $tag -R $Repo --json assets }
   Check "gh release view"
   $assets = (($json -join "`n") | ConvertFrom-Json).assets
   if (@($assets).Count -ne 3) { throw "$tag has $(@($assets).Count) assets, not 3" }
@@ -209,7 +223,7 @@ try {
 
   $back = Join-Path $dist "verify"
   New-Item -ItemType Directory -Path $back | Out-Null
-  gh release download $tag -R $Repo -p SHA256SUMS.txt -D $back
+  Native { gh release download $tag -R $Repo -p SHA256SUMS.txt -D $back }
   Check "gh release download SHA256SUMS.txt"
   $downloaded = Join-Path $back "SHA256SUMS.txt"
   if ((Get-FileHash $downloaded).Hash -ne (Get-FileHash $sums).Hash) {
