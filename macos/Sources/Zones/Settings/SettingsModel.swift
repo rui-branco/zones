@@ -35,7 +35,7 @@ final class SettingsModel: NSObject, ObservableObject {
     /// as nothing else on screen changes to show it.
     @Published private(set) var copied = false
 
-    /// What the updater is doing: the title row offers an update it found.
+    /// What the updater is doing: the header's update button shows it.
     @Published private(set) var update = Updater.shared.state
 
     /// Set while this window's own change is being saved, so the
@@ -295,13 +295,58 @@ final class SettingsModel: NSObject, ObservableObject {
         update = Updater.shared.state
     }
 
+    /// Checks now, saying what it found in an alert, as the menu's Check
+    /// for Updates… does.
+    func checkForUpdates() {
+        Updater.shared.check(manual: true)
+    }
+
     func installUpdate() {
         Updater.shared.install()
     }
 
-    /// Back to the display's default, by forgetting what was chosen for it.
+    /// Turned on, an update already on offer installs by itself. The menu
+    /// bar's tick reads the config each time its menu opens.
+    func setAutoUpdate(_ on: Bool) {
+        config.autoUpdate = on
+        save()
+        revision += 1
+        Updater.shared.autoUpdateChanged()
+    }
+
+    // MARK: - Start at login
+
+    /// What macOS has, as the menu bar's Start at Login shows it: the user
+    /// can take Zones off the list in System Settings without asking us.
+    var startsAtLogin: Bool {
+        LoginItem.isEnabled
+    }
+
+    /// As the menu bar's Start at Login does: on the login list or off it,
+    /// the config following and saved, the user told why when it cannot be
+    /// put on. Drawn again either way, so a switch that did not take goes back.
+    func setStartAtLogin(_ on: Bool) {
+        LoginItem.setEnabled(on)
+        revision += 1
+    }
+
+    // MARK: - Reset
+
+    /// Back to the display's default, by forgetting what was chosen for it,
+    /// once the user has said so: every size it has goes with it.
     func reset() {
         guard let display = selected else { return }
+        let sizes = layouts(of: display).sizes.count
+        let alert = NSAlert()
+        alert.messageText = "Reset \(display.name)?"
+        alert.informativeText = sizes > 1
+            ? "Its layout and all \(sizes) sizes go back to the default. This can't be undone."
+            : "Its layout goes back to the default. This can't be undone."
+        alert.alertStyle = .warning
+        alert.addButton(withTitle: "Reset").hasDestructiveAction = true
+        alert.addButton(withTitle: "Cancel")
+        guard alert.runModal() == .alertFirstButtonReturn else { return }
+
         config.layouts.removeValue(forKey: display.key)
         save()
         load()

@@ -16,6 +16,8 @@ enum Metrics {
     static let headerHeight: CGFloat = 40
     /// Where the icon and the name start: clear of the traffic lights.
     static let headerX: CGFloat = 80
+    /// From the header's version and update controls to the window's right edge.
+    static let headerTrailing: CGFloat = 16
 
     static let leftX: CGFloat = 24
     static let leftWidth: CGFloat = 272

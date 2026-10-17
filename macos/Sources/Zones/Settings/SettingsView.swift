@@ -11,11 +11,15 @@ import ZonesCore
 /// keeps its width; the right one, and the zone editor in it, take whatever
 /// the window gives them. The header is flat with the page, in the window's
 /// own colour: the traffic lights sit on it and the window is dragged by it,
-/// with no title bar stacked on top.
+/// with no title bar stacked on top. Its right end has the version, the
+/// updates and starting at login.
 struct SettingsView: View {
     @ObservedObject var model: SettingsModel
 
     private static let hint = "Click to split  ·  Drag a line to resize  ·  Right-click for more"
+
+    /// This copy's version; "dev" for a build run outside its bundle, which has none.
+    private static let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "dev"
 
     var body: some View {
         // The whole window, the strip under the traffic lights included:
@@ -29,7 +33,7 @@ struct SettingsView: View {
     private func page(_ size: CGSize) -> some View {
         ZStack(alignment: .topLeading) {
             Color.windowBack
-            header
+            header(width: size.width)
             leftColumn(height: size.height)
             if let display = model.selected {
                 rightColumn(display, size: size)
@@ -40,17 +44,54 @@ struct SettingsView: View {
 
     // MARK: - Header
 
-    private var header: some View {
-        HStack(spacing: 6) {
-            Image(nsImage: NSApp?.applicationIconImage ?? NSImage())
-                .resizable()
-                .interpolation(.high)
-                .frame(width: 16, height: 16)
-            Text("Zones")
-                .font(.system(size: 13))
-                .foregroundStyle(Color.text)
+    /// The icon and the name beside the traffic lights; at the other end
+    /// the version, the update button and the auto-update and start at
+    /// login switches.
+    private func header(width: CGFloat) -> some View {
+        Group {
+            HStack(spacing: 6) {
+                Image(nsImage: NSApp?.applicationIconImage ?? NSImage())
+                    .resizable()
+                    .interpolation(.high)
+                    .frame(width: 16, height: 16)
+                Text("Zones")
+                    .font(.system(size: 13))
+                    .foregroundStyle(Color.text)
+            }
+            .place(Metrics.headerX, 0, height: Metrics.headerHeight, alignment: .leading)
+
+            HStack(spacing: 16) {
+                HStack(spacing: 12) {
+                    Text("Version \(SettingsView.version)")
+                        .font(.system(size: 11))
+                        .foregroundStyle(Color.textDim)
+                    updateButton
+                }
+                HStack(spacing: 6) {
+                    Text("Auto-update")
+                        .font(.system(size: 11))
+                        .foregroundStyle(Color.text)
+                    Toggle("Auto-update", isOn: Binding(get: { model.config.autoUpdate },
+                                                        set: { model.setAutoUpdate($0) }))
+                        .labelsHidden()
+                        .toggleStyle(.switch)
+                        .controlSize(.small)
+                }
+                HStack(spacing: 6) {
+                    Text("Start at Login")
+                        .font(.system(size: 11))
+                        .foregroundStyle(Color.text)
+                    Toggle("Start at Login", isOn: Binding(get: { model.startsAtLogin },
+                                                           set: { model.setStartAtLogin($0) }))
+                        .labelsHidden()
+                        .toggleStyle(.switch)
+                        .controlSize(.small)
+                }
+            }
+            .lineLimit(1)
+            .fixedSize()
+            .place(0, 0, width: width - Metrics.headerTrailing, height: Metrics.headerHeight, alignment: .trailing)
         }
-        .place(Metrics.headerX, 0, height: Metrics.headerHeight, alignment: .leading)
     }
 
     // MARK: - Left column
@@ -130,8 +171,7 @@ struct SettingsView: View {
     }
 
     /// The display's name, and level with it the page's actions: the one
-    /// used most as a button, the rest in a menu; before them, an update
-    /// when there is one.
+    /// used most as a button, the rest in a menu.
     private func titleRow(_ display: Display) -> some View {
         HStack(alignment: .top, spacing: 16) {
             Text(display.name)
@@ -140,7 +180,6 @@ struct SettingsView: View {
                 .lineLimit(1)
             Spacer(minLength: 0)
             HStack(spacing: 8) {
-                updateButton
                 Button {
                     model.showOnScreen()
                 } label: {
@@ -167,11 +206,27 @@ struct SettingsView: View {
         }
     }
 
-    /// The update the updater found, in the accent colour: the one thing on
-    /// the page waiting on the user. Greyed out, saying so, while it installs.
+    /// What the updater is doing, as a button: a check to start, then the
+    /// update it found in the accent colour, the one thing on the page
+    /// waiting on the user. Greyed out, saying so, while it is busy.
     @ViewBuilder
     private var updateButton: some View {
         switch model.update {
+        case .idle, .failed:
+            Button {
+                model.checkForUpdates()
+            } label: {
+                Label("Check for Updates", systemImage: "arrow.triangle.2.circlepath")
+            }
+            .buttonStyle(.bordered)
+            .controlSize(.small)
+        case .checking:
+            Button {} label: {
+                Label("Checking…", systemImage: "arrow.triangle.2.circlepath")
+            }
+            .buttonStyle(.bordered)
+            .controlSize(.small)
+            .disabled(true)
         case .available(let release):
             Button {
                 model.installUpdate()
@@ -179,16 +234,14 @@ struct SettingsView: View {
                 Label("Update to \(release.version)", systemImage: "arrow.down.circle")
             }
             .buttonStyle(.borderedProminent)
-            .controlSize(.regular)
+            .controlSize(.small)
         case .downloading, .installing:
             Button {} label: {
                 Label("Updating…", systemImage: "arrow.down.circle")
             }
             .buttonStyle(.borderedProminent)
-            .controlSize(.regular)
+            .controlSize(.small)
             .disabled(true)
-        case .idle, .checking, .failed:
-            EmptyView()
         }
     }
 
