@@ -51,7 +51,7 @@ namespace Zones
         static WinEventDelegate _proc;      // held so the delegate outlives the hook
         static Timer _timer;
         static ZoneOverlay _overlay;
-        static uint _pid;                   // this process, whose windows the shortcut leaves alone
+        static uint _pid;                   // this process, whose windows only the zone shortcuts move
 
         // The drag being followed. _hwnd is zero between drags.
         static IntPtr _hwnd;
@@ -701,15 +701,12 @@ namespace Zones
                 // A window being dragged is the drag's to place. A minimized
                 // one can still be the foreground window, but it is out of
                 // the way on purpose: the shortcut must not bring it back.
+                // Zones' own settings window included: it is the window in
+                // front, and a shortcut that did nothing to it read as one
+                // that did not work. While a new shortcut is being pressed
+                // into it, they are let go, so that never moves it.
                 IntPtr hwnd = GetForegroundWindow();
                 if (hwnd == IntPtr.Zero || hwnd == _hwnd || IsIconic(hwnd) || !Snappable(hwnd)) return;
-
-                // Zones' own windows are not the user's to arrange, as drags
-                // already skip them: the settings window in front, where a new
-                // shortcut is tried out, would jump into a zone instead.
-                uint pid;
-                GetWindowThreadProcessId(hwnd, out pid);
-                if (pid == _pid) return;
 
                 // A maximized window's frame covers the whole work area, which
                 // is no one zone: it goes into the one under its middle, and
@@ -918,6 +915,22 @@ namespace Zones
                              target.Width + l + r, target.Height + t + b,
                              SWP_NOZORDER | SWP_NOACTIVATE | SWP_NOOWNERZORDER);
             }
+
+            // A window that will not go smaller than it is stays bigger than
+            // the zone, from the zone's top-left corner. In a zone at the
+            // display's right or bottom edge that hangs it off the display, so
+            // it is moved back on, as far into the zone as it can still be.
+            Rectangle got = Frame(hwnd);
+            if (got.Width <= target.Width && got.Height <= target.Height) return;
+            Display d = Displays.At(new Point(target.Left + target.Width / 2, target.Top + target.Height / 2));
+            if (d == null) return;
+
+            int dx = Math.Max(d.Work.Left - got.Left, Math.Min(0, d.Work.Right - got.Right));
+            int dy = Math.Max(d.Work.Top - got.Top, Math.Min(0, d.Work.Bottom - got.Bottom));
+            if (dx == 0 && dy == 0) return;
+            Rectangle now = WindowRect(hwnd);
+            SetWindowPos(hwnd, IntPtr.Zero, now.Left + dx, now.Top + dy, 0, 0,
+                         SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE | SWP_NOOWNERZORDER);
         }
 
         /// <summary>
@@ -1000,6 +1013,7 @@ namespace Zones
         const int VK_SHIFT = 0x10;
         const int VK_ESCAPE = 0x1B;
         const int SW_RESTORE = 9;
+        const uint SWP_NOSIZE = 0x0001;
         const uint SWP_NOZORDER = 0x0004;
         const uint SWP_NOACTIVATE = 0x0010;
         const uint SWP_NOOWNERZORDER = 0x0200;
