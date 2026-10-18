@@ -59,7 +59,7 @@ namespace Zones
         const int SM_CYSIZEFRAME = 33;
         const int SM_CXPADDEDBORDER = 92;
 
-        const string Hint = "Click to split  ·  Drag a line to resize  ·  Right-click for more";
+        const string Hint = "Click to split  ·  Shift+click to split across  ·  Drag a line to resize  ·  Right-click for more";
         const string CopiedText = "Copied to every display";
 
         // In logical pixels: the size the window opens at, room permitting,
