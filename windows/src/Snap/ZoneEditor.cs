@@ -15,7 +15,9 @@ namespace Zones
     /// Everything is direct manipulation, because a layout is easier to see
     /// than to describe: a click cuts the zone under the cursor along the guide
     /// that follows it, a drag moves a line between zones, a right-click offers
-    /// the rest. Both the guide and a dragged line are pulled onto halves,
+    /// the rest, which includes leaving part of the display empty: an empty
+    /// part keeps its place and the lines beside it, but takes no number and
+    /// no windows. Both the guide and a dragged line are pulled onto halves,
     /// thirds and quarters, which are what people almost always want and are
     /// hard to hit by hand; Alt lets a dragged line go anywhere.
     ///
@@ -43,33 +45,37 @@ namespace Zones
         float _s = 1f;
         bool _onCard;
 
-        int _hoverZone = -1;
+        int _hoverZone = -1;    // a piece: a zone or an empty one
         ZoneDivider _hoverDivider;
         ZoneDivider _drag;
         Point _mouse;
         bool _shift;            // the guide runs across, to cut top from bottom
 
-        bool _down;             // the left button went down on a zone, not a line
+        bool _down;             // the left button went down on a piece, not a line
         Point _downAt;
         int _downZone = -1;
 
         // All of the motion here is drawing only. Hit-testing always meets the
-        // layout as it is now, wherever its zones are drawn on their way there.
-        Tween[] _glow = new Tween[0];   // each zone's highlight under the mouse, so moving between zones cross-fades
+        // layout as it is now, wherever its pieces are drawn on their way there.
+        Tween[] _glow = new Tween[0];   // each piece's highlight under the mouse, so moving between them cross-fades
         readonly Tween _lineMotion;     // the line under the cursor fading in
-        readonly Tween _morph;          // 0 to 1, from the zones as they were drawn to where they are now
-        List<RectangleF> _from = new List<RectangleF>();    // the zones as drawn when the morph began: canvas pixels, gapped
+        readonly Tween _morph;          // 0 to 1, from the pieces as they were drawn to where they are now
+        List<RectangleF> _from = new List<RectangleF>();    // the pieces as drawn when the morph began: canvas pixels, gapped
         List<Rectangle> _fromReal = new List<Rectangle>();  // and their real sizes, for the ones on their way out
-        int[] _source = new int[0];     // for each zone now, the old one it grows out of, or -1 for one that fades in
-        bool[] _kept = new bool[0];     // for each old zone, whether any zone now grows out of it; the rest fade out
+        List<int> _fromNumbers = new List<int>();           // and their labels then, 0 for an empty one
+        int[] _source = new int[0];     // for each piece now, the old one it grows out of, or -1 for one that fades in
+        bool[] _kept = new bool[0];     // for each old piece, whether any piece now grows out of it; the rest fade out
 
         readonly ContextMenuStrip _menu = new ContextMenuStrip();
         readonly ToolStripMenuItem _columnsItem;
         readonly ToolStripMenuItem _rowsItem;
+        readonly ToolStripMenuItem _zoneItem;
+        readonly ToolStripMenuItem _blankItem;
         readonly ToolStripMenuItem _removeItem;
-        int _menuZone = -1;
+        readonly ToolStripMenuItem _removeBlankItem;
+        int _menuZone = -1;     // the piece the menu was opened on
 
-        /// <summary>A split, a removal or a finished drag changed the layout.</summary>
+        /// <summary>A split, a removal, a part left empty or filled again, or a finished drag changed the layout.</summary>
         public event EventHandler LayoutChanged;
 
         public ZoneEditor()
@@ -91,13 +97,28 @@ namespace Zones
             _rowsItem = Theme.MenuItem("Split top and bottom", 0);
             _rowsItem.Click += delegate { Edited(delegate { return _layout.Split(_menuZone, false, 0.5); }); };
 
+            _zoneItem = Theme.MenuItem("Make it a zone", 0);
+            _zoneItem.Click += delegate { Edited(delegate { return _layout.SetBlank(_menuZone, false); }); };
+
+            _blankItem = Theme.MenuItem("Leave empty", 0);
+            _blankItem.Click += delegate { Edited(delegate { return _layout.SetBlank(_menuZone, true); }); };
+
             _removeItem = Theme.MenuItem("Remove zone", 0xE74D);
             _removeItem.Click += delegate { Edited(delegate { return _layout.Remove(_menuZone); }); };
 
+            _removeBlankItem = Theme.MenuItem("Remove empty area", 0xE74D);
+            _removeBlankItem.Click += delegate { Edited(delegate { return _layout.Remove(_menuZone); }); };
+
+            // One menu for both kinds of piece; OpenMenu hides what does not
+            // apply. A zone's items and an empty piece's fall either side of
+            // the one separator, so it never doubles up or dangles.
             _menu.Items.Add(_columnsItem);
             _menu.Items.Add(_rowsItem);
+            _menu.Items.Add(_zoneItem);
             _menu.Items.Add(new ToolStripSeparator());
+            _menu.Items.Add(_blankItem);
             _menu.Items.Add(_removeItem);
+            _menu.Items.Add(_removeBlankItem);
         }
 
         /// <summary>How big a logical pixel is: the owner's DPI scale.</summary>
@@ -138,7 +159,8 @@ namespace Zones
         {
             List<Rectangle> fromReal;
             List<ZoneNode> fromNodes;
-            List<RectangleF> from = Drawn(out fromReal, out fromNodes);
+            List<int> fromNumbers;
+            List<RectangleF> from = Drawn(out fromReal, out fromNodes, out fromNumbers);
             List<Rectangle> before = Placed();
 
             _layout = layout;
@@ -152,7 +174,7 @@ namespace Zones
 
             // The same zones handed over again, as on every activation of the
             // window, change nothing: a morph on its way carries on.
-            if (!Same(before, Placed())) Morph(from, fromReal, fromNodes);
+            if (!Same(before, Placed())) Morph(from, fromReal, fromNodes, fromNumbers);
             Highlight();
             Invalidate();
         }
@@ -210,13 +232,25 @@ namespace Zones
             return best;
         }
 
-        static int ZoneAt(Point p, List<Rectangle> zones)
+        static int PieceAt(Point p, List<Rectangle> pieces)
         {
-            for (int i = 0; i < zones.Count; i++)
+            for (int i = 0; i < pieces.Count; i++)
             {
-                if (zones[i].Contains(p)) return i;
+                if (pieces[i].Contains(p)) return i;
             }
             return -1;
+        }
+
+        /// <summary>
+        /// Each piece's label: its zone number, counting zones only so it is
+        /// the number the display itself shows, or 0 for an empty piece.
+        /// </summary>
+        List<int> Numbers()
+        {
+            List<int> numbers = new List<int>();
+            int zone = 0;
+            foreach (ZoneNode n in _layout.Pieces()) numbers.Add(n.Blank ? 0 : ++zone);
+            return numbers;
         }
 
         /// <summary>
@@ -246,7 +280,7 @@ namespace Zones
             Rectangle canvas = Canvas();
             ZoneDivider was = _hoverDivider;
             _hoverDivider = DividerAt(p, canvas);
-            _hoverZone = _hoverDivider == null ? ZoneAt(p, _layout.ZonesIn(canvas, 0)) : -1;
+            _hoverZone = _hoverDivider == null ? PieceAt(p, _layout.PiecesIn(canvas, 0)) : -1;
             Cursor = _hoverDivider == null
                 ? Cursors.Default
                 : (_hoverDivider.Vertical ? Cursors.SizeWE : Cursors.SizeNS);
@@ -255,18 +289,19 @@ namespace Zones
         }
 
         /// <summary>
-        /// A split or a removal from the menu: <paramref name="edit"/> makes it
-        /// and says whether anything changed. If it did, the zones morph to
-        /// their new places and the owner is told.
+        /// A split, an emptying or a removal from the menu: <paramref name="edit"/>
+        /// makes it and says whether anything changed. If it did, the pieces
+        /// morph to their new places and the owner is told.
         /// </summary>
         void Edited(Func<bool> edit)
         {
             List<Rectangle> fromReal;
             List<ZoneNode> fromNodes;
-            List<RectangleF> from = Drawn(out fromReal, out fromNodes);
+            List<int> fromNumbers;
+            List<RectangleF> from = Drawn(out fromReal, out fromNodes, out fromNumbers);
             if (!edit()) return;
 
-            Morph(from, fromReal, fromNodes);
+            Morph(from, fromReal, fromNodes, fromNumbers);
             _hoverZone = -1;
             _hoverDivider = null;
             Highlight();
@@ -276,32 +311,36 @@ namespace Zones
 
         // ---------- motion ----------
 
-        /// <summary>The zones where they belong now, in canvas pixels, gapped; null with nothing to draw them on.</summary>
+        /// <summary>The pieces where they belong now, in canvas pixels, gapped; null with nothing to draw them on.</summary>
         List<Rectangle> Placed()
         {
             if (!Ready) return null;
             Rectangle canvas = Canvas();
             if (canvas.Width <= 0 || canvas.Height <= 0) return null;
-            return _layout.ZonesIn(canvas, Gap(canvas));
+            return _layout.PiecesIn(canvas, Gap(canvas));
         }
 
         /// <summary>
-        /// The zones as drawn this moment, in canvas pixels: mid-morph, wherever
+        /// The pieces as drawn this moment, in canvas pixels: mid-morph, wherever
         /// they have got to. Their real sizes come back in <paramref name="real"/>,
-        /// and the layout's own zone nodes in <paramref name="nodes"/>, which an
-        /// edit in place keeps for every zone it leaves be. Null before there is
-        /// a window, when nothing is on screen to move from, as while the
-        /// settings window is being put together.
+        /// the layout's own leaf nodes in <paramref name="nodes"/>, which an
+        /// edit in place keeps for every piece it leaves be, and their labels in
+        /// <paramref name="numbers"/>: taken now, because emptying a piece
+        /// changes its node in place. Null before there is a window, when
+        /// nothing is on screen to move from, as while the settings window is
+        /// being put together.
         /// </summary>
-        List<RectangleF> Drawn(out List<Rectangle> real, out List<ZoneNode> nodes)
+        List<RectangleF> Drawn(out List<Rectangle> real, out List<ZoneNode> nodes, out List<int> numbers)
         {
             real = null;
             nodes = null;
+            numbers = null;
             List<Rectangle> zones = Placed();
             if (zones == null || !IsHandleCreated) return null;
 
-            real = _layout.ZonesIn(new Rectangle(Point.Empty, _displaySize), _spacingPx);
-            nodes = _layout.Zones();
+            real = _layout.PiecesIn(new Rectangle(Point.Empty, _displaySize), _spacingPx);
+            nodes = _layout.Pieces();
+            numbers = Numbers();
             float m = _morph.Value;
             List<RectangleF> drawn = new List<RectangleF>(zones.Count);
             for (int i = 0; i < zones.Count; i++) drawn.Add(Morphed(i, zones[i], m));
@@ -324,7 +363,7 @@ namespace Zones
         /// size overlaps it as much as itself, give or take the gaps, and the
         /// gaps would pick the wrong one.
         /// </summary>
-        void Morph(List<RectangleF> from, List<Rectangle> fromReal, List<ZoneNode> fromNodes)
+        void Morph(List<RectangleF> from, List<Rectangle> fromReal, List<ZoneNode> fromNodes, List<int> fromNumbers)
         {
             List<Rectangle> to = Placed();
             if (from == null || to == null)
@@ -333,7 +372,7 @@ namespace Zones
                 return;
             }
 
-            List<ZoneNode> nodes = _layout.Zones();
+            List<ZoneNode> nodes = _layout.Pieces();
             int[] source = new int[to.Count];
             bool[] kept = new bool[from.Count];
             for (int i = 0; i < to.Count; i++)
@@ -361,6 +400,7 @@ namespace Zones
 
             _from = from;
             _fromReal = fromReal;
+            _fromNumbers = fromNumbers;
             _source = source;
             _kept = kept;
             _morph.Snap(0);
@@ -410,13 +450,13 @@ namespace Zones
         }
 
         /// <summary>
-        /// Points every zone's highlight at the one under the cursor now, none
+        /// Points every piece's highlight at the one under the cursor now, none
         /// while a line is hovered or dragged. Made again when the number of
-        /// zones changes.
+        /// pieces changes.
         /// </summary>
         void Highlight()
         {
-            int n = _layout != null ? _layout.ZoneCount : 0;
+            int n = _layout != null ? _layout.PieceCount : 0;
             if (_glow.Length != n)
             {
                 _glow = new Tween[n];
@@ -445,44 +485,48 @@ namespace Zones
             // The screen: a shade off the card it sits on, sunk into it.
             Theme.FillRounded(g, Theme.Light ? Color.FromArgb(0xEC, 0xEC, 0xEC) : Color.FromArgb(0x1F, 0x1F, 0x1F), canvas, 8 * _s);
 
-            List<Rectangle> zones = _layout.ZonesIn(canvas, gap);
-            List<Rectangle> real = _layout.ZonesIn(new Rectangle(Point.Empty, _displaySize), _spacingPx);
+            List<Rectangle> pieces = _layout.PiecesIn(canvas, gap);
+            List<Rectangle> real = _layout.PiecesIn(new Rectangle(Point.Empty, _displaySize), _spacingPx);
+            List<int> numbers = Numbers();
             ZoneDivider line = _drag ?? _hoverDivider;
-            int hot = line == null && _hoverZone < zones.Count ? _hoverZone : -1;
+            int hot = line == null && _hoverZone < pieces.Count ? _hoverZone : -1;
 
-            // Mid-morph, the old zones nothing grows out of fade where they
-            // were, under the rest; the ones that overlap no old zone fade in
-            // as they grow.
+            // Mid-morph, the old pieces nothing grows out of fade where they
+            // were, under the rest, labelled as they were then; the ones that
+            // overlap no old piece fade in as they grow.
             float m = _morph.Value;
             if (m < 1)
             {
                 for (int j = 0; j < _from.Count; j++)
                 {
-                    if (!_kept[j]) DrawZone(g, _from[j], j + 1, _fromReal[j], 0, 1 - m);
+                    if (!_kept[j]) DrawZone(g, _from[j], _fromNumbers[j], _fromReal[j], 0, 1 - m);
                 }
             }
-            for (int i = 0; i < zones.Count; i++)
+            for (int i = 0; i < pieces.Count; i++)
             {
                 float glow = i < _glow.Length ? _glow[i].Value : 0;
                 float alpha = m < 1 && (i >= _source.Length || _source[i] < 0) ? m : 1;
-                DrawZone(g, Morphed(i, zones[i], m), i + 1, real[i], glow, alpha);
+                DrawZone(g, Morphed(i, pieces[i], m), numbers[i], real[i], glow, alpha);
             }
 
+            // The split guide only over a zone: an empty piece is not cut.
             if (line != null)
             {
                 DrawDivider(g, line, canvas, gap);
             }
-            else if (hot >= 0)
+            else if (hot >= 0 && numbers[hot] > 0)
             {
-                List<Rectangle> raw = _layout.ZonesIn(canvas, 0);
-                DrawGuide(g, raw[hot], zones[hot]);
+                List<Rectangle> raw = _layout.PiecesIn(canvas, 0);
+                DrawGuide(g, raw[hot], pieces[hot]);
             }
         }
 
         /// <summary>
-        /// One zone at <paramref name="zone"/>, lit by the mouse as far as
+        /// One piece at <paramref name="zone"/>, lit by the mouse as far as
         /// <paramref name="glow"/> has got and as opaque as <paramref name="alpha"/>:
-        /// a zone fading in or out of a morph is see-through, label and all.
+        /// a piece fading in or out of a morph is see-through, label and all.
+        /// A <paramref name="number"/> of 0 is an empty piece, drawn as next to
+        /// nothing: a broken outline and a faint word, no fill.
         /// </summary>
         void DrawZone(Graphics g, RectangleF zone, int number, Rectangle real, float glow, float alpha)
         {
@@ -491,17 +535,31 @@ namespace Zones
             r.Inflate(-stroke / 2, -stroke / 2);
             using (GraphicsPath p = Theme.Rounded(r, 6 * _s))
             {
-                // Raised off the screen: lighter than it in either theme.
-                using (SolidBrush b = new SolidBrush(Faded(Theme.Light ? Color.White : Color.FromArgb(0x36, 0x36, 0x36), alpha)))
-                    g.FillPath(b, p);
-                if (glow > 0)
+                if (number > 0)
                 {
-                    using (SolidBrush b = new SolidBrush(Faded(Color.FromArgb(Theme.Light ? 28 : 40, Theme.Accent), glow * alpha)))
+                    // Raised off the screen: lighter than it in either theme.
+                    using (SolidBrush b = new SolidBrush(Faded(Theme.Light ? Color.White : Color.FromArgb(0x36, 0x36, 0x36), alpha)))
                         g.FillPath(b, p);
+                    if (glow > 0)
+                    {
+                        using (SolidBrush b = new SolidBrush(Faded(Color.FromArgb(Theme.Light ? 28 : 40, Theme.Accent), glow * alpha)))
+                            g.FillPath(b, p);
+                    }
                 }
                 Color edge = Theme.Light ? Color.FromArgb(0xDD, 0xDD, 0xDD) : Color.FromArgb(0x42, 0x42, 0x42);
                 using (Pen pen = new Pen(Faded(Motion.Blend(edge, Theme.Accent, glow), alpha), stroke))
+                {
+                    // Opened up from the stock dash, which at a hairline
+                    // reads as nearly solid.
+                    if (number == 0) pen.DashPattern = new float[] { 4, 3 };
                     g.DrawPath(pen, p);
+                }
+            }
+
+            if (number == 0)
+            {
+                DrawEmptyLabel(g, zone, real, alpha);
+                return;
             }
 
             // The number, as big as the zone comfortably takes, and the real
@@ -535,6 +593,34 @@ namespace Zones
             }
         }
 
+        /// <summary>
+        /// An empty piece's label: a faint "Empty" where it fits, and the real
+        /// size under it by the same rule as a zone's. No number: the zones
+        /// around it are numbered as if it were not there, as on the display.
+        /// </summary>
+        void DrawEmptyLabel(Graphics g, RectangleF piece, Rectangle real, float alpha)
+        {
+            const string word = "Empty";
+            Font small = Theme.Font(12 * _s);
+            float smallH = small.GetHeight(g);
+            if (piece.Height < smallH + R(8) || g.MeasureString(word, small).Width > piece.Width - R(8)) return;
+
+            string size = real.Width + " × " + real.Height;
+            bool sizeLine = piece.Height >= R(60) && g.MeasureString(size, small).Width <= piece.Width - R(8);
+            float top = piece.Top + (piece.Height - smallH - (sizeLine ? smallH : 0)) / 2;
+
+            using (StringFormat f = new StringFormat())
+            using (SolidBrush b = new SolidBrush(Faded(Theme.TextFaint, alpha)))
+            {
+                f.Alignment = StringAlignment.Center;
+                f.LineAlignment = StringAlignment.Near;
+                f.FormatFlags = StringFormatFlags.NoWrap;
+
+                g.DrawString(word, small, b, new RectangleF(piece.Left, top, piece.Width, smallH), f);
+                if (sizeLine) g.DrawString(size, small, b, new RectangleF(piece.Left, top + smallH, piece.Width, smallH), f);
+            }
+        }
+
         /// <summary><paramref name="c"/> with its own opacity scaled by <paramref name="alpha"/>.</summary>
         static Color Faded(Color c, float alpha)
         {
@@ -548,7 +634,7 @@ namespace Zones
         /// </summary>
         void DrawDivider(Graphics g, ZoneDivider d, Rectangle canvas, int gap)
         {
-            // ZonesIn gives an inner edge half the gap each side, the odd pixel
+            // PiecesIn gives an inner edge half the gap each side, the odd pixel
             // to the left or top, and an edge on the canvas's own edge all of it.
             int inner1 = gap - gap / 2;
             int inner2 = gap / 2;
@@ -664,7 +750,7 @@ namespace Zones
 
             _down = true;
             _downAt = e.Location;
-            _downZone = ZoneAt(e.Location, _layout.ZonesIn(canvas, 0));
+            _downZone = PieceAt(e.Location, _layout.PiecesIn(canvas, 0));
         }
 
         protected override void OnMouseUp(MouseEventArgs e)
@@ -696,10 +782,11 @@ namespace Zones
             Size slop = SystemInformation.DragSize;
             if (Math.Abs(e.X - _downAt.X) >= slop.Width || Math.Abs(e.Y - _downAt.Y) >= slop.Height) return;
 
+            // An empty piece is not cut: it is made a zone first, from the menu.
             Rectangle canvas = Canvas();
-            List<Rectangle> raw = _layout.ZonesIn(canvas, 0);
-            int zone = ZoneAt(e.Location, raw);
-            if (zone < 0 || zone != _downZone) return;
+            List<Rectangle> raw = _layout.PiecesIn(canvas, 0);
+            int zone = PieceAt(e.Location, raw);
+            if (zone < 0 || zone != _downZone || _layout.IsBlank(zone)) return;
 
             bool across = (Control.ModifierKeys & Keys.Shift) != 0;
             Rectangle z = raw[zone];
@@ -713,10 +800,11 @@ namespace Zones
 
             List<Rectangle> fromReal;
             List<ZoneNode> fromNodes;
-            List<RectangleF> from = Drawn(out fromReal, out fromNodes);
+            List<int> fromNumbers;
+            List<RectangleF> from = Drawn(out fromReal, out fromNodes, out fromNumbers);
             if (_layout.Split(zone, !across, (double)(cut - start) / extent))
             {
-                Morph(from, fromReal, fromNodes);
+                Morph(from, fromReal, fromNodes, fromNumbers);
                 Hover(e.Location);
                 Invalidate();
                 if (LayoutChanged != null) LayoutChanged(this, EventArgs.Empty);
@@ -726,15 +814,28 @@ namespace Zones
         void OpenMenu(Point p)
         {
             Rectangle canvas = Canvas();
-            List<Rectangle> raw = _layout.ZonesIn(canvas, 0);
-            int zone = ZoneAt(p, raw);
-            if (zone < 0) return;
+            List<Rectangle> raw = _layout.PiecesIn(canvas, 0);
+            int piece = PieceAt(p, raw);
+            if (piece < 0) return;
 
-            // The same floor as a click: halves under 5% of the display are slivers.
-            _menuZone = zone;
-            _columnsItem.Enabled = raw[zone].Width / 2.0 >= canvas.Width * 0.05;
-            _rowsItem.Enabled = raw[zone].Height / 2.0 >= canvas.Height * 0.05;
+            // A zone is split, emptied or removed; an empty piece made a zone
+            // again or removed. What does not apply is not shown at all.
+            bool blank = _layout.IsBlank(piece);
+            _menuZone = piece;
+            _columnsItem.Visible = !blank;
+            _rowsItem.Visible = !blank;
+            _blankItem.Visible = !blank;
+            _removeItem.Visible = !blank;
+            _zoneItem.Visible = blank;
+            _removeBlankItem.Visible = blank;
+
+            // The same floor as a click: halves under 5% of the display are
+            // slivers. The last zone can be neither emptied nor removed.
+            _columnsItem.Enabled = raw[piece].Width / 2.0 >= canvas.Width * 0.05;
+            _rowsItem.Enabled = raw[piece].Height / 2.0 >= canvas.Height * 0.05;
+            _blankItem.Enabled = _layout.ZoneCount > 1;
             _removeItem.Enabled = _layout.ZoneCount > 1;
+            _removeBlankItem.Enabled = _layout.PieceCount > 1;
             _menu.Show(this, p);
         }
 

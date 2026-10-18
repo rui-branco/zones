@@ -493,7 +493,8 @@ namespace Zones
 
             int spacing = (int)Math.Round(_config.SnapSpacing * d.Scale);
             List<Rectangle> zones = layouts.Sizes[_previewSize].ZonesIn(d.Work, spacing);
-            List<int> selected = ZonesUnder(cursor, zones, spacing / 2 + (int)Math.Round(Reach * d.Scale));
+            List<Rectangle> blanks = layouts.Sizes[_previewSize].BlanksIn(d.Work);
+            List<int> selected = ZonesUnder(cursor, zones, blanks, spacing / 2 + (int)Math.Round(Reach * d.Scale));
 
             Rectangle target = Rectangle.Empty;
             foreach (int i in selected)
@@ -534,10 +535,12 @@ namespace Zones
         /// <summary>
         /// The zones under <paramref name="cursor"/>, in zone order: every one
         /// within <paramref name="reach"/> of it, so near the line between two
-        /// the window spans both; or, with the cursor past the edge of them all
-        /// (in the margin, over the taskbar), the nearest one.
+        /// the window spans both; none with the cursor out in a part of the
+        /// layout left empty (<paramref name="blanks"/>), where windows are
+        /// meant not to go; or, with the cursor past the edge of them all (in
+        /// the margin, over the taskbar), the nearest one.
         /// </summary>
-        static List<int> ZonesUnder(Point cursor, List<Rectangle> zones, int reach)
+        static List<int> ZonesUnder(Point cursor, List<Rectangle> zones, List<Rectangle> blanks, int reach)
         {
             List<int> selected = new List<int>();
             for (int i = 0; i < zones.Count; i++)
@@ -545,6 +548,12 @@ namespace Zones
                 if (Rectangle.Inflate(zones[i], reach, reach).Contains(cursor)) selected.Add(i);
             }
             if (selected.Count > 0) return selected;
+
+            // Nothing lit, so a window let go there is not snapped anywhere.
+            foreach (Rectangle b in blanks)
+            {
+                if (b.Contains(cursor)) return selected;
+            }
 
             int nearest = Nearest(cursor, zones);
             if (nearest >= 0) selected.Add(nearest);

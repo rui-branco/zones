@@ -6,13 +6,15 @@ namespace Zones
 {
     /// <summary>
     /// One piece of a snap layout: either a zone a window can be dropped into
-    /// (no children), or a run of pieces laid side by side (<see cref="Columns"/>)
-    /// or stacked top to bottom.
+    /// (no children), a part of the display left empty (no children,
+    /// <see cref="Blank"/>), or a run of pieces laid side by side
+    /// (<see cref="Columns"/>) or stacked top to bottom.
     ///
     /// A tree rather than a flat list of rectangles, because that is what makes
     /// editing behave: dragging the line between two columns resizes those two
     /// and nothing else, and removing a zone hands its space to a neighbour
-    /// instead of leaving a hole nothing can fill.
+    /// instead of leaving a hole nothing can fill. A hole on purpose is an
+    /// empty piece, which keeps its lines draggable like any other.
     /// </summary>
     public sealed class ZoneNode
     {
@@ -22,17 +24,27 @@ namespace Zones
         /// <summary>For a run: children side by side (true) or stacked (false).</summary>
         public bool Columns;
 
-        /// <summary>Null, or empty, for a zone.</summary>
+        /// <summary>Null, or empty, for a zone or an empty piece.</summary>
         public List<ZoneNode> Children;
+
+        /// <summary>A leaf left empty: it takes its share of the run but is not a zone.</summary>
+        public bool Blank;
 
         public ZoneNode(double size)
         {
             Size = size;
         }
 
-        public bool IsZone
+        /// <summary>No children: a zone, or an empty piece.</summary>
+        public bool IsLeaf
         {
             get { return Children == null || Children.Count == 0; }
+        }
+
+        /// <summary>A leaf a window can be dropped into: one not left empty.</summary>
+        public bool IsZone
+        {
+            get { return IsLeaf && !Blank; }
         }
 
         /// <summary>A run of equal shares, each child a zone unless given.</summary>
@@ -56,6 +68,7 @@ namespace Zones
         {
             ZoneNode n = new ZoneNode(Size);
             n.Columns = Columns;
+            n.Blank = Blank;
             if (Children != null)
             {
                 n.Children = new List<ZoneNode>(Children.Count);
@@ -107,9 +120,12 @@ namespace Zones
     /// either changing.
     ///
     /// Zones are numbered in reading order of the tree: a run of columns left to
-    /// right, a stack top to bottom, depth first. Every operation leaves the tree
-    /// normalised: no run of one, no run inside a run going the same way, and
-    /// every set of siblings summing to 1.
+    /// right, a stack top to bottom, depth first. A piece left empty holds its
+    /// place in that order but takes no number, so the numbers skip it;
+    /// outside the editor it is only room no window is snapped into. Every
+    /// operation leaves the tree normalised: no run of one, no run inside a run
+    /// going the same way, no two empty pieces side by side, and every set of
+    /// siblings summing to 1.
     /// </summary>
     public sealed class ZoneLayout
     {
@@ -131,22 +147,46 @@ namespace Zones
             get { return Zones().Count; }
         }
 
-        /// <summary>The zone nodes, in zone-number order.</summary>
+        /// <summary>The zone nodes, in zone-number order: the pieces without the empty ones.</summary>
         public List<ZoneNode> Zones()
         {
             List<ZoneNode> list = new List<ZoneNode>();
-            CollectZones(Root, list);
+            foreach (ZoneNode n in Pieces())
+            {
+                if (n.IsZone) list.Add(n);
+            }
             return list;
         }
 
-        static void CollectZones(ZoneNode n, List<ZoneNode> list)
+        public int PieceCount
         {
-            if (n.IsZone)
+            get { return Pieces().Count; }
+        }
+
+        /// <summary>Every leaf, zone or empty, in reading order: what the editor numbers its pieces by.</summary>
+        public List<ZoneNode> Pieces()
+        {
+            List<ZoneNode> list = new List<ZoneNode>();
+            CollectPieces(Root, list);
+            return list;
+        }
+
+        static void CollectPieces(ZoneNode n, List<ZoneNode> list)
+        {
+            if (n.IsLeaf)
             {
                 list.Add(n);
                 return;
             }
-            foreach (ZoneNode c in n.Children) CollectZones(c, list);
+            foreach (ZoneNode c in n.Children) CollectPieces(c, list);
+        }
+
+        /// <summary>Whether piece <paramref name="piece"/> is left empty; false for one there is not.</summary>
+        public bool IsBlank(int piece)
+        {
+            ZoneNode parent;
+            ZoneNode node = Find(piece, out parent);
+            return node != null && node.Blank;
         }
 
         // ---------- geometry ----------
@@ -154,13 +194,32 @@ namespace Zones
         /// <summary>
         /// Every zone's rectangle inside <paramref name="area"/>, in zone-number
         /// order, with <paramref name="spacing"/> pixels between neighbouring
-        /// zones and around the outside.
-        ///
-        /// Laid out in whole pixels as it goes, so two neighbours share the very
-        /// same edge before the spacing is taken off: rounding each zone on its
-        /// own left one-pixel slivers and overlaps between them.
+        /// zones and around the outside: <see cref="PiecesIn"/> without the
+        /// empty pieces. A zone's edge against an empty piece is an inner edge
+        /// all the same, so emptying a neighbour does not move a zone.
         /// </summary>
         public List<Rectangle> ZonesIn(Rectangle area, int spacing)
+        {
+            List<ZoneNode> pieces = Pieces();
+            List<Rectangle> all = PiecesIn(area, spacing);
+            List<Rectangle> zones = new List<Rectangle>(all.Count);
+            for (int i = 0; i < all.Count; i++)
+            {
+                if (pieces[i].IsZone) zones.Add(all[i]);
+            }
+            return zones;
+        }
+
+        /// <summary>
+        /// Every piece's rectangle inside <paramref name="area"/>, zones and
+        /// empty ones alike, in reading order, with <paramref name="spacing"/>
+        /// pixels between neighbouring pieces and around the outside.
+        ///
+        /// Laid out in whole pixels as it goes, so two neighbours share the very
+        /// same edge before the spacing is taken off: rounding each piece on its
+        /// own left one-pixel slivers and overlaps between them.
+        /// </summary>
+        public List<Rectangle> PiecesIn(Rectangle area, int spacing)
         {
             List<Rectangle> raw = new List<Rectangle>();
             Lay(Root, area, raw, null);
@@ -172,16 +231,33 @@ namespace Zones
             int inner1 = spacing - spacing / 2;
             int inner2 = spacing / 2;
 
-            List<Rectangle> zones = new List<Rectangle>(raw.Count);
+            List<Rectangle> pieces = new List<Rectangle>(raw.Count);
             foreach (Rectangle r in raw)
             {
                 int l = r.Left + (r.Left <= area.Left ? spacing : inner2);
                 int t = r.Top + (r.Top <= area.Top ? spacing : inner2);
                 int rr = r.Right - (r.Right >= area.Right ? spacing : inner1);
                 int b = r.Bottom - (r.Bottom >= area.Bottom ? spacing : inner1);
-                zones.Add(Rectangle.FromLTRB(l, t, Math.Max(l + 1, rr), Math.Max(t + 1, b)));
+                pieces.Add(Rectangle.FromLTRB(l, t, Math.Max(l + 1, rr), Math.Max(t + 1, b)));
             }
-            return zones;
+            return pieces;
+        }
+
+        /// <summary>
+        /// The empty pieces' rectangles inside <paramref name="area"/>, without
+        /// any spacing taken off: the parts of it where a dragged window lights
+        /// no zone.
+        /// </summary>
+        public List<Rectangle> BlanksIn(Rectangle area)
+        {
+            List<ZoneNode> pieces = Pieces();
+            List<Rectangle> all = PiecesIn(area, 0);
+            List<Rectangle> blanks = new List<Rectangle>();
+            for (int i = 0; i < all.Count; i++)
+            {
+                if (pieces[i].Blank) blanks.Add(all[i]);
+            }
+            return blanks;
         }
 
         /// <summary>Every line between neighbouring pieces, laid out in <paramref name="area"/>.</summary>
@@ -192,11 +268,11 @@ namespace Zones
             return list;
         }
 
-        static void Lay(ZoneNode n, Rectangle r, List<Rectangle> zones, List<ZoneDivider> dividers)
+        static void Lay(ZoneNode n, Rectangle r, List<Rectangle> pieces, List<ZoneDivider> dividers)
         {
-            if (n.IsZone)
+            if (n.IsLeaf)
             {
-                if (zones != null) zones.Add(r);
+                if (pieces != null) pieces.Add(r);
                 return;
             }
 
@@ -217,7 +293,7 @@ namespace Zones
                 Rectangle child = n.Columns
                     ? Rectangle.FromLTRB(from, r.Top, to, r.Bottom)
                     : Rectangle.FromLTRB(r.Left, from, r.Right, to);
-                Lay(n.Children[i], child, zones, dividers);
+                Lay(n.Children[i], child, pieces, dividers);
 
                 if (dividers != null && i < n.Children.Count - 1)
                 {
@@ -235,18 +311,20 @@ namespace Zones
         // ---------- editing ----------
 
         /// <summary>
-        /// Cuts zone <paramref name="zone"/> in two: with a vertical line when
+        /// Cuts piece <paramref name="piece"/> in two: with a vertical line when
         /// <paramref name="columns"/>, into a left and a right part, otherwise
         /// into a top and a bottom one. <paramref name="at"/> is where the cut
-        /// falls inside the zone, 0 to 1. Size limits are the caller's to check.
+        /// falls inside the piece, 0 to 1. Size limits are the caller's to check.
+        /// Only a zone is cut: two halves of an empty piece would be put
+        /// straight back together as one.
         /// </summary>
-        public bool Split(int zone, bool columns, double at)
+        public bool Split(int piece, bool columns, double at)
         {
             if (at <= 0 || at >= 1) return false;
 
             ZoneNode parent;
-            ZoneNode node = Find(zone, out parent);
-            if (node == null) return false;
+            ZoneNode node = Find(piece, out parent);
+            if (node == null || node.Blank) return false;
 
             if (parent != null && parent.Columns == columns)
             {
@@ -271,20 +349,39 @@ namespace Zones
         }
 
         /// <summary>
-        /// Takes zone <paramref name="zone"/> out, its space going to the
-        /// neighbour before it (after it, for the first). The last zone stays.
+        /// Takes piece <paramref name="piece"/> out, its space going to the
+        /// neighbour before it (after it, for the first). The last piece stays,
+        /// and so does the last zone, however many empty pieces are around it.
         /// </summary>
-        public bool Remove(int zone)
+        public bool Remove(int piece)
         {
             ZoneNode parent;
-            ZoneNode node = Find(zone, out parent);
+            ZoneNode node = Find(piece, out parent);
             if (node == null || parent == null) return false;
+            if (node.IsZone && ZoneCount == 1) return false;
 
             int i = parent.Children.IndexOf(node);
             int heir = i > 0 ? i - 1 : i + 1;
             parent.Children[heir].Size += node.Size;
             parent.Children.RemoveAt(i);
 
+            Normalize();
+            return true;
+        }
+
+        /// <summary>
+        /// Leaves piece <paramref name="piece"/> empty, or makes it a zone
+        /// again. False when it already is what it is asked to be, or when it
+        /// is the last zone: a layout with nowhere to put a window is no layout.
+        /// </summary>
+        public bool SetBlank(int piece, bool blank)
+        {
+            ZoneNode parent;
+            ZoneNode node = Find(piece, out parent);
+            if (node == null || node.Blank == blank) return false;
+            if (blank && ZoneCount == 1) return false;
+
+            node.Blank = blank;
             Normalize();
             return true;
         }
@@ -320,25 +417,26 @@ namespace Zones
             d.Position = start + (int)Math.Round((before + first) * extent);
         }
 
-        ZoneNode Find(int zone, out ZoneNode parent)
+        /// <summary>Piece <paramref name="piece"/>, counting empty ones, and the run it is in.</summary>
+        ZoneNode Find(int piece, out ZoneNode parent)
         {
             parent = null;
             int index = 0;
-            return Find(Root, null, zone, ref index, out parent);
+            return Find(Root, null, piece, ref index, out parent);
         }
 
-        static ZoneNode Find(ZoneNode n, ZoneNode up, int zone, ref int index, out ZoneNode parent)
+        static ZoneNode Find(ZoneNode n, ZoneNode up, int piece, ref int index, out ZoneNode parent)
         {
             parent = null;
-            if (n.IsZone)
+            if (n.IsLeaf)
             {
-                if (index++ != zone) return null;
+                if (index++ != piece) return null;
                 parent = up;
                 return n;
             }
             foreach (ZoneNode c in n.Children)
             {
-                ZoneNode hit = Find(c, n, zone, ref index, out parent);
+                ZoneNode hit = Find(c, n, piece, ref index, out parent);
                 if (hit != null) return hit;
             }
             return null;
@@ -356,11 +454,14 @@ namespace Zones
 
         static void Normalize(ZoneNode n)
         {
-            if (n.IsZone)
+            if (n.IsLeaf)
             {
                 n.Children = null;
                 return;
             }
+
+            // Only a leaf is ever empty; a run's emptiness is its children's.
+            n.Blank = false;
 
             foreach (ZoneNode c in n.Children) Normalize(c);
 
@@ -368,7 +469,7 @@ namespace Zones
             List<ZoneNode> flat = new List<ZoneNode>();
             foreach (ZoneNode c in n.Children)
             {
-                if (!c.IsZone && c.Columns == n.Columns)
+                if (!c.IsLeaf && c.Columns == n.Columns)
                 {
                     foreach (ZoneNode g in c.Children)
                     {
@@ -378,15 +479,26 @@ namespace Zones
                 }
                 else flat.Add(c);
             }
-            n.Children = flat;
 
-            // A run of one is that one.
+            // Two empty pieces side by side are one empty piece: the line
+            // between them would move nothing anyone could see.
+            List<ZoneNode> merged = new List<ZoneNode>(flat.Count);
+            foreach (ZoneNode c in flat)
+            {
+                ZoneNode last = merged.Count > 0 ? merged[merged.Count - 1] : null;
+                if (last != null && last.Blank && c.Blank) last.Size += c.Size;
+                else merged.Add(c);
+            }
+            n.Children = merged;
+
+            // A run of one is that one, so a run left all empty is one empty piece.
             if (n.Children.Count == 1)
             {
                 ZoneNode only = n.Children[0];
                 n.Columns = only.Columns;
+                n.Blank = only.Blank;
                 n.Children = only.Children;
-                if (n.IsZone) n.Children = null;
+                if (n.IsLeaf) n.Children = null;
                 return;
             }
 
@@ -398,7 +510,7 @@ namespace Zones
 
         // ---------- comparing ----------
 
-        /// <summary>The same zones in the same places, give or take a rounding.</summary>
+        /// <summary>The same zones and empty pieces in the same places, give or take a rounding.</summary>
         public bool SameAs(ZoneLayout other)
         {
             return other != null && Same(Root, other.Root);
@@ -407,7 +519,7 @@ namespace Zones
         static bool Same(ZoneNode a, ZoneNode b)
         {
             if (Math.Abs(a.Size - b.Size) > 0.002) return false;
-            if (a.IsZone || b.IsZone) return a.IsZone && b.IsZone;
+            if (a.IsLeaf || b.IsLeaf) return a.IsLeaf && b.IsLeaf && a.Blank == b.Blank;
             if (a.Columns != b.Columns || a.Children.Count != b.Children.Count) return false;
             for (int i = 0; i < a.Children.Count; i++)
             {
@@ -485,7 +597,13 @@ namespace Zones
         {
             Dictionary<string, object> d = new Dictionary<string, object>();
             d["size"] = n.Size;
-            if (!n.IsZone)
+            if (n.IsLeaf)
+            {
+                // Only on an empty piece, so a layout without one is written
+                // exactly as it was before there were any.
+                if (n.Blank) d["blank"] = true;
+            }
+            else
             {
                 d["columns"] = n.Columns;
                 List<object> kids = new List<object>();
@@ -499,13 +617,18 @@ namespace Zones
         /// Reads a layout back. Null for anything malformed rather than an
         /// exception: one bad layout should cost that display its layout, not
         /// every other setting in the file with it.
+        ///
+        /// Null too for one with every piece empty: everything that uses a
+        /// layout counts on it having at least one zone.
         /// </summary>
         public static ZoneLayout FromJson(object v)
         {
             try
             {
                 ZoneNode root = NodeFromJson(v, 0);
-                return root == null ? null : new ZoneLayout(root);
+                if (root == null) return null;
+                ZoneLayout layout = new ZoneLayout(root);
+                return layout.ZoneCount > 0 ? layout : null;
             }
             catch
             {
@@ -525,7 +648,11 @@ namespace Zones
             ZoneNode n = new ZoneNode(size);
             object kidsVal;
             List<object> kids = d.TryGetValue("children", out kidsVal) ? Json.Arr(kidsVal) : null;
-            if (kids == null || kids.Count == 0) return n;
+            if (kids == null || kids.Count == 0)
+            {
+                n.Blank = Json.Bool(d, "blank", false);
+                return n;
+            }
 
             n.Columns = Json.Bool(d, "columns", true);
             n.Children = new List<ZoneNode>(kids.Count);
