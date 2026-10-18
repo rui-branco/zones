@@ -143,7 +143,9 @@ down the left has four pages, with the version running at its foot.
     right-click to remove one.
   - **Zones**: click to split, <kbd>Shift</kbd>+click to split across, drag a
     line to resize (it clicks into halves, thirds and quarters on the way
-    unless you hold <kbd>Alt</kbd>/<kbd>⌥</kbd>), right-click to remove a zone.
+    unless you hold <kbd>Alt</kbd>/<kbd>⌥</kbd>), right-click to remove a zone
+    or leave it empty, so a zone can sit in the middle with space around it
+    (nothing snaps into empty space; Windows only for now).
   - **Show on screen** draws the layout over the real display. The **⋯** menu
     beside it has **Use on all displays**, which copies the layout, sizes and
     all, and **Reset this display**, back to the default.
